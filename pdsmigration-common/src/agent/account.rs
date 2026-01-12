@@ -27,7 +27,7 @@ pub async fn create_account(
         extra_data: Ipld::Null,
     })
     .map_err(|error| {
-        tracing::error!("Failed to create account: {:?}", error);
+        tracing::error!("Failed to create account - Error mapping input data to JSON: {:?}", error);
         MigrationError::Runtime {
             message: "Failed to create account".to_string(),
         }
@@ -48,6 +48,13 @@ pub async fn create_account(
                 tracing::info!("Successfully created account");
             }
             _ => {
+                let status = output.status();
+                let response_text = output.text().await.unwrap_or_else(|_| "Unable to read response".to_string());
+                tracing::error!(
+                    "Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    status,
+                    response_text
+                );
                 return Err(MigrationError::Runtime {
                     message: "Failed to create account".to_string(),
                 });
@@ -97,12 +104,20 @@ pub async fn create_account_without_pds(
                 tracing::info!("Successfully created account");
             }
             _ => {
+                let status = output.status();
+                let response_text = output.text().await.unwrap_or_else(|_| "Unable to read response".to_string());
+                tracing::error!(
+                    "Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    status,
+                    response_text
+                );
                 return Err(MigrationError::Runtime {
                     message: "Failed to create account".to_string(),
                 });
             }
         },
         Err(e) => {
+            tracing::error!("Failed to create account - Error sending request: {:?}", e);
             return Err(MigrationError::Runtime {
                 message: e.to_string(),
             });
