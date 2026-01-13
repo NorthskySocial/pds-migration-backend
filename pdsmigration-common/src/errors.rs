@@ -51,12 +51,10 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/test"))
-            .respond_with(
-                ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                    "error": "InvalidRequest",
-                    "message": "The request was invalid"
-                })),
-            )
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "InvalidRequest",
+                "message": "The request was invalid"
+            })))
             .mount(&mock_server)
             .await;
 
@@ -78,11 +76,9 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/test"))
-            .respond_with(
-                ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                    "message": "Something went wrong"
-                })),
-            )
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "message": "Something went wrong"
+            })))
             .mount(&mock_server)
             .await;
 
@@ -104,11 +100,9 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/test"))
-            .respond_with(
-                ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                    "error": "ServerError"
-                })),
-            )
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "ServerError"
+            })))
             .mount(&mock_server)
             .await;
 
