@@ -54,6 +54,11 @@ jobs:
       - name: "Run Formatter"
         id: formatting
         run: cargo fmt -- --check
+      - name: "Clean up disk space before Docker build"
+        run: |
+          cargo clean
+          docker system prune -af --volumes
+          df -h
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build Docker image
@@ -64,6 +69,8 @@ jobs:
           push: false
           outputs: type=cacheonly
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: "Some checks failed"
         if: ${{ failure() }}
         run: |
