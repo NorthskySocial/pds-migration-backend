@@ -1,5 +1,5 @@
 use crate::{
-    CreateAccountInput, CreateAccountInputData, CreateAccountRequest,
+    try_parse_error_response, CreateAccountInput, CreateAccountInputData, CreateAccountRequest,
     CreateAccountWithoutPDSRequest, DeactivatedAccountInput, DeactivatedAccountInputData,
     MigrationError, CREATE_ACCOUNT_PATH,
 };
@@ -49,6 +49,14 @@ pub async fn create_account(
         Ok(output) => match output.status() {
             reqwest::StatusCode::OK => {
                 tracing::info!("Successfully created account");
+            }
+            reqwest::StatusCode::BAD_REQUEST => {
+                let error_message = try_parse_error_response(output).await;
+
+                tracing::error!("Failed to create account - Bad Request: {}", error_message);
+                return Err(MigrationError::Upstream {
+                    message: error_message,
+                });
             }
             _ => {
                 let status = output.status();
@@ -108,6 +116,14 @@ pub async fn create_account_without_pds(
         Ok(output) => match output.status() {
             reqwest::StatusCode::OK => {
                 tracing::info!("Successfully created account");
+            }
+            reqwest::StatusCode::BAD_REQUEST => {
+                let error_message = try_parse_error_response(output).await;
+
+                tracing::error!("Failed to create account - Bad Request: {}", error_message);
+                return Err(MigrationError::Upstream {
+                    message: error_message,
+                });
             }
             _ => {
                 let status = output.status();
