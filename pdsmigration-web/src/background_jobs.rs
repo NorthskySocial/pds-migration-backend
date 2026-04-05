@@ -477,13 +477,11 @@ async fn upload_blobs_api_job(
         );
         match upload_blob(&agent, file).await {
             Ok(_) => {
-                {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        if let Some(progress) = r.progress.as_mut() {
-                            progress.successful_blobs += 1;
-                            progress.successful_blobs_ids.push(blob_cid_str.clone());
-                        }
+                let mut st = state.write().await;
+                if let Some(r) = st.records.get_mut(&id) {
+                    if let Some(progress) = r.progress.as_mut() {
+                        progress.successful_blobs += 1;
+                        progress.successful_blobs_ids.push(blob_cid_str.clone());
                     }
                 }
             }
@@ -495,10 +493,7 @@ async fn upload_blobs_api_job(
                         tokio::time::sleep(five_minutes).await;
                     }
                     _ => {
-                        tracing::error!(
-                            "Unexpected error when uploading blob: {}",
-                            e.to_string()
-                        );
+                        tracing::error!("Unexpected error when uploading blob: {}", e.to_string());
                     }
                 }
                 tracing::error!("Failed to upload blob {}: {}", blob_cid_str, e);
