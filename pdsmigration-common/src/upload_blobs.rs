@@ -2,12 +2,23 @@ use crate::agent::{login_helper, upload_blob};
 use crate::{build_agent, MigrationError};
 use bsky_sdk::api::agent::Configure;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct UploadBlobsRequest {
     pub pds_host: String,
     pub did: String,
     pub token: String,
+}
+
+impl fmt::Debug for UploadBlobsRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UploadBlobsRequest")
+            .field("pds_host", &self.pds_host)
+            .field("did", &self.did)
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[tracing::instrument]

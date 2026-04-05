@@ -147,16 +147,6 @@ pub async fn get_job_api(
 
     match jobs.get(id).await {
         Some(job) => {
-            if let Some(progress) = &job.progress {
-                tracing::info!(
-                    job_status = ?job.status,
-                    successful_blobs = progress.successful_blobs,
-                    invalid_blobs = progress.invalid_blobs,
-                    total = progress.total,
-                    job_kind = ?job.kind,
-                    "Job found, logging progress"
-                );
-            }
             Ok(HttpResponse::Ok().json(job))
         }
         None => {
