@@ -51,6 +51,6 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
         upload_blob(&agent, file).await?;
     }
 
-    tracing::info!("Finished uploading blobs for DID {}", session.did);
+    tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
     Ok(())
 }
