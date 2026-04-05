@@ -103,12 +103,13 @@ cargo test -p pdsmigration-common
 
 ### Web Service Configuration
 
-| Variable        | Required | Default                 | Description                        |
-|-----------------|----------|-------------------------|------------------------------------|
-| `ENDPOINT`      | **Yes**  | -                       | S3-compatible storage endpoint URL |
-| `PLC_DIRECTORY` | No       | `https://plc.directory` | PLC directory service URL          |
-| `SERVER_PORT`   | No       | `9090`                  | HTTP server port                   |
-| `WORKER_COUNT`  | No       | `2`                     | Number of worker threads           |
+| Variable                   | Required | Default                 | Description                           |
+|----------------------------|----------|-------------------------|---------------------------------------|
+| `ENDPOINT`                 | **Yes**  | -                       | S3-compatible storage endpoint URL.   |
+| `PLC_DIRECTORY`            | No       | `https://plc.directory` | PLC directory service URL             |
+| `SERVER_PORT`              | No       | `9090`                  | HTTP server port                      |
+| `WORKER_COUNT`             | No       | `2`                     | Number of worker threads              |
+| `CONCURRENT_TASKS_PER_JOB` | No       | `3`                     | Max concurrent blob processes per job |
 
 ### AWS S3 Configuration
 
@@ -124,6 +125,7 @@ Standard AWS SDK environment variables are supported:
 ENDPOINT=https://s3.amazonaws.com
 SERVER_PORT=9090
 WORKER_COUNT=4
+CONCURRENT_TASKS_PER_JOB=3
 PLC_DIRECTORY=https://plc.directory
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key

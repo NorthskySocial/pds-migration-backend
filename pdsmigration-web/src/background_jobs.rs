@@ -19,8 +19,6 @@ use tokio::task::JoinHandle;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-const MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB: usize = 3;
-
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -202,7 +200,11 @@ impl JobManager {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn spawn_upload_blobs(&self, request: UploadBlobsRequest) -> Result<Uuid, ApiError> {
+    pub async fn spawn_upload_blobs(
+        &self,
+        request: UploadBlobsRequest,
+        concurrent_tasks: usize,
+    ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
@@ -218,7 +220,7 @@ impl JobManager {
                 st.set_running(id);
             }
 
-            let result = upload_blobs_api_job(id, state.clone(), request).await;
+            let result = upload_blobs_api_job(id, state.clone(), request, concurrent_tasks).await;
             {
                 let mut st = state.write().await;
                 st.finalize(id, result);
@@ -397,6 +399,7 @@ async fn upload_blobs_api_job(
     id: Uuid,
     state: Arc<RwLock<JobState>>,
     req: UploadBlobsRequest,
+    concurrent_tasks: usize,
 ) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
@@ -466,7 +469,7 @@ async fn upload_blobs_api_job(
                 }
             }
         })
-        .buffer_unordered(MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB)
+        .buffer_unordered(concurrent_tasks)
         .collect::<Vec<_>>()
         .await;
 

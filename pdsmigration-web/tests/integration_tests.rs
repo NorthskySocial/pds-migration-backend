@@ -21,6 +21,7 @@ mod integration_tests {
             server: ServerConfig {
                 port: 8080,
                 workers: 1,
+                concurrent_tasks_per_job: 3,
                 rate_limit_window_secs: 60,
                 rate_limit_max_requests: 60,
                 auth_token: None,

@@ -1,5 +1,6 @@
 use crate::api::{ExportBlobsApiRequest, UploadBlobsApiRequest};
 use crate::background_jobs::{JobManager, JobRecord};
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::{post, Json};
 use actix_web::{get, web, HttpResponse};
@@ -52,14 +53,18 @@ pub async fn enqueue_export_blobs_job_api(
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(jobs, req))]
+#[tracing::instrument(skip(jobs, req, config))]
 #[post("/jobs/upload-blobs")]
 pub async fn enqueue_upload_blobs_job_api(
     jobs: web::Data<JobManager>,
+    config: web::Data<AppConfig>,
     req: Json<UploadBlobsApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let id = jobs
-        .spawn_upload_blobs(UploadBlobsRequest::from(req.into_inner()))
+        .spawn_upload_blobs(
+            UploadBlobsRequest::from(req.into_inner()),
+            config.server.concurrent_tasks_per_job,
+        )
         .await?;
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
         job_id: id.to_string(),
