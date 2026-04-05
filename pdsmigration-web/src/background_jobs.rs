@@ -19,6 +19,8 @@ use tokio::task::JoinHandle;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB: usize = 3;
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -429,31 +431,44 @@ async fn upload_blobs_api_job(
         st.update_total(id, blobs_in_dir.len() as u64);
     }
 
-    for blob in blobs_in_dir {
-        let file = tokio::fs::read(blob.path()).await.map_err(|error| {
-            tracing::error!("{}", error.to_string());
-            MigrationError::Runtime {
-                message: "Failed to read next blob".to_string(),
+    // process blobs in parallel
+    futures_util::stream::iter(blobs_in_dir.into_iter())
+        .map(|blob| {
+            let agent = agent.clone();
+            let state = state.clone();
+            async move {
+                let file = match tokio::fs::read(blob.path()).await {
+                    Ok(data) => data,
+                    Err(error) => {
+                        tracing::error!("{}", error.to_string());
+                        let blob_cid_str = blob.file_name().to_string_lossy().to_string();
+                        let mut st = state.write().await;
+                        st.record_failure(id, blob_cid_str);
+                        return;
+                    }
+                };
+                let blob_cid_str = blob.file_name().to_string_lossy().to_string();
+                tracing::info!(
+                    "Uploading blob: {:?} with size {}...",
+                    blob_cid_str,
+                    file.len()
+                );
+                match upload_blob(&agent, file).await {
+                    Ok(_) => {
+                        let mut st = state.write().await;
+                        st.record_success(id, blob_cid_str.clone());
+                    }
+                    Err(e) => {
+                        handle_rate_limit_error(&e, &blob_cid_str, JobKind::UploadBlobs).await;
+                        let mut st = state.write().await;
+                        st.record_failure(id, blob_cid_str.clone());
+                    }
+                }
             }
-        })?;
-        let blob_cid_str = blob.file_name().to_string_lossy().to_string();
-        tracing::info!(
-            "Uploading blob: {:?} with size {}...",
-            blob_cid_str,
-            file.len()
-        );
-        match upload_blob(&agent, file).await {
-            Ok(_) => {
-                let mut st = state.write().await;
-                st.record_success(id, blob_cid_str.clone());
-            }
-            Err(e) => {
-                handle_rate_limit_error(&e, &blob_cid_str, JobKind::UploadBlobs).await;
-                let mut st = state.write().await;
-                st.record_failure(id, blob_cid_str.clone());
-            }
-        }
-    }
+        })
+        .buffer_unordered(MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB)
+        .collect::<Vec<_>>()
+        .await;
 
     tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
     Ok(())
