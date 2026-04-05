@@ -46,7 +46,7 @@ pub async fn upload_blobs_api(req: Json<UploadBlobsApiRequest>) -> Result<HttpRe
     pdsmigration_common::upload_blobs_api(req.into())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to upload blobs: {}", e);
+            tracing::error!("Failed to upload blobs for DID {}: {}", req.did, e);
             match e {
                 MigrationError::Validation { .. } => ApiError::Runtime {
                     message: "Unexpected error occurred".to_string(),
