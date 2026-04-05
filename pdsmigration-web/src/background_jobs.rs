@@ -457,6 +457,9 @@ async fn upload_blobs_api_job(
     while let Ok(Some(_)) = blob_dir.next_entry().await {
         file_count += 1;
     }
+    // Initialize collections to track successful and failed blob IDs
+    let mut successful_blobs = Vec::new();
+    let mut invalid_blobs: Vec<String> = Vec::new();
     {
         let mut st = state.write().await;
         if let Some(r) = st.records.get_mut(&id) {
@@ -484,13 +487,30 @@ async fn upload_blobs_api_job(
             blob_cid_str,
             file.len()
         );
-        upload_blob(&agent, file).await?;
-        {
-            let mut st = state.write().await;
-            if let Some(r) = st.records.get_mut(&id) {
-                if let Some(progress) = r.progress.as_mut() {
-                    progress.successful_blobs += 1;
-                    progress.successful_blobs_ids.push(blob_cid_str.clone());
+        match upload_blob(&agent, file).await {
+            Ok(_) => {
+                successful_blobs.push(blob_cid_str.clone());
+                {
+                    let mut st = state.write().await;
+                    if let Some(r) = st.records.get_mut(&id) {
+                        if let Some(progress) = r.progress.as_mut() {
+                            progress.successful_blobs += 1;
+                            progress.successful_blobs_ids.push(blob_cid_str.clone());
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to upload blob {}: {}", blob_cid_str, e);
+                invalid_blobs.push(blob_cid_str.clone());
+                {
+                    let mut st = state.write().await;
+                    if let Some(r) = st.records.get_mut(&id) {
+                        if let Some(progress) = r.progress.as_mut() {
+                            progress.invalid_blobs += 1;
+                            progress.invalid_blob_ids.push(blob_cid_str.clone());
+                        }
+                    }
                 }
             }
         }
