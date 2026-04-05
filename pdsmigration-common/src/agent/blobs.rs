@@ -120,6 +120,72 @@ pub async fn upload_blob(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Migrat
     Ok(())
 }
 
+#[tracing::instrument(skip(agent, input))]
+pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), MigrationError> {
+    let pds_host = agent.get_endpoint().await;
+    let session = agent
+        .get_session()
+        .await
+        .ok_or_else(|| MigrationError::Runtime {
+            message: "No session available for upload".to_string(),
+        })?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", pds_host);
+
+    tracing::debug!("Uploading blob of size {} to {}", input.len(), url);
+    let result = client
+        .post(&url)
+        .header("Content-Type", "application/octet-stream")
+        .bearer_auth(&session.access_jwt)
+        .body(input)
+        .send()
+        .await;
+
+    match result {
+        Ok(output) => {
+            let ratelimit_remaining = output
+                .headers()
+                .get("ratelimit-remaining")
+                .map(|v| v.to_str().unwrap_or("1000"))
+                .unwrap_or("1000")
+                .parse::<i32>()
+                .unwrap_or(1000);
+            if ratelimit_remaining < 100 {
+                tracing::error!("Ratelimit reached");
+                return Err(MigrationError::RateLimitReached);
+            }
+
+            match output.status() {
+                reqwest::StatusCode::OK => {
+                    tracing::info!("Successfully uploaded blob");
+                    Ok(())
+                }
+                reqwest::StatusCode::BAD_REQUEST => {
+                    tracing::error!("BadRequest Error uploading blob: {:?}", output);
+                    tracing::error!("Response body: {:?}", output.text().await);
+                    Err(MigrationError::Upstream {
+                        message: "BadRequest uploading blob".to_string(),
+                    })
+                }
+                _ => {
+                    tracing::error!("Runtime Error uploading blob: {:?}", output);
+                    tracing::error!("Response body: {:?}", output.text().await);
+                    Err(MigrationError::Upstream {
+                        message: "Runtime Error uploading blob".to_string(),
+                    })
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Unexpected Error uploading blob: {:?}", e);
+            Err(MigrationError::Runtime {
+                message: "Unexpected Error uploading blob".to_string(),
+            })
+        }
+    }
+}
+
 #[tracing::instrument]
 pub async fn download_blob(
     pds_host: &str,

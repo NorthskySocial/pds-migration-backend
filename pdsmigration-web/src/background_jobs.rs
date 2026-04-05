@@ -3,7 +3,7 @@ use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
-    build_agent, download_blob, login_helper, missing_blobs, upload_blob, ExportBlobsRequest,
+    build_agent, download_blob, login_helper, missing_blobs, upload_blob_v2, ExportBlobsRequest,
     GetBlobRequest, MigrationError, UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
@@ -453,7 +453,7 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                match upload_blob(&agent, file).await {
+                match upload_blob_v2(&agent, file).await {
                     Ok(_) => {
                         let mut st = state.write().await;
                         st.record_success(id, blob_cid_str.clone());

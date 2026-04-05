@@ -22,3 +22,5 @@ Cargo.lock_bk
 .idea/
 
 .vscode
+did-plc-*/
+*.car
