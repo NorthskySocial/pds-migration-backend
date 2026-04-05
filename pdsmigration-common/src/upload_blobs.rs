@@ -47,8 +47,14 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
                 message: "Failed to read next blob".to_string(),
             }
         })?;
+        tracing::debug!(
+            "Uploading blob: {:?} with size {}...",
+            blob.file_name(),
+            file.len()
+        );
         upload_blob(&agent, file).await?;
     }
 
+    tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
     Ok(())
 }
