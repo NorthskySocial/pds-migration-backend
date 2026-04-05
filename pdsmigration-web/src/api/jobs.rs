@@ -1,9 +1,9 @@
-use crate::api::ExportBlobsApiRequest;
+use crate::api::{ExportBlobsApiRequest, UploadBlobsApiRequest};
 use crate::background_jobs::{JobManager, JobRecord};
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::{post, Json};
 use actix_web::{get, web, HttpResponse};
-use pdsmigration_common::ExportBlobsRequest;
+use pdsmigration_common::{ExportBlobsRequest, UploadBlobsRequest};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -34,6 +34,32 @@ pub async fn enqueue_export_blobs_job_api(
 ) -> Result<HttpResponse, ApiError> {
     let id = jobs
         .spawn_export_blobs(ExportBlobsRequest::from(req.into_inner()))
+        .await?;
+    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
+        job_id: id.to_string(),
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/jobs/upload-blobs",
+    request_body = UploadBlobsApiRequest,
+    responses(
+        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
+        (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
+        (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
+        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
+    ),
+    tag = "pdsmigration-web"
+)]
+#[tracing::instrument(skip(jobs, req))]
+#[post("/jobs/upload-blobs")]
+pub async fn enqueue_upload_blobs_job_api(
+    jobs: web::Data<JobManager>,
+    req: Json<UploadBlobsApiRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let id = jobs
+        .spawn_upload_blobs(UploadBlobsRequest::from(req.into_inner()))
         .await?;
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
         job_id: id.to_string(),
