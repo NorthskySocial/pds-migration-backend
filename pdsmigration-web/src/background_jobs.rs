@@ -302,9 +302,6 @@ async fn export_blobs_api_job(
     )
     .await?;
 
-    // Initialize collections to track successful and failed blob IDs
-    let mut successful_blobs = Vec::new();
-    let mut invalid_blobs = Vec::new();
     let mut path = match std::env::current_dir() {
         Ok(path) => path,
         Err(e) => {
@@ -380,7 +377,6 @@ async fn export_blobs_api_job(
                     }
 
                     file.flush().await.unwrap();
-                    successful_blobs.push(blob_cid_str.clone());
 
                     {
                         let mut st = state.write().await;
@@ -407,7 +403,6 @@ async fn export_blobs_api_job(
                         }
                     }
                     tracing::error!("Failed to download missing blob with cid: {}", blob_cid_str);
-                    invalid_blobs.push(blob_cid_str.clone());
                     {
                         let mut st = state.write().await;
                         if let Some(r) = st.records.get_mut(&id) {
@@ -453,28 +448,21 @@ async fn upload_blobs_api_job(
         }
     }
 
-    let mut file_count = 0u64;
-    while let Ok(Some(_)) = blob_dir.next_entry().await {
-        file_count += 1;
+    let mut blobs_in_dir = Vec::new();
+    while let Ok(Some(entry)) = blob_dir.next_entry().await {
+        blobs_in_dir.push(entry);
     }
-    // Initialize collections to track successful and failed blob IDs
-    let mut successful_blobs = Vec::new();
-    let mut invalid_blobs: Vec<String> = Vec::new();
+
     {
         let mut st = state.write().await;
         if let Some(r) = st.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
-                progress.total = Some(file_count);
+                progress.total = Some(blobs_in_dir.len() as u64);
             }
         }
     }
 
-    while let Some(blob) = blob_dir.next_entry().await.map_err(|error| {
-        tracing::error!("{}", error.to_string());
-        MigrationError::Runtime {
-            message: "Failed to get next blob".to_string(),
-        }
-    })? {
+    for blob in blobs_in_dir {
         let file = tokio::fs::read(blob.path()).await.map_err(|error| {
             tracing::error!("{}", error.to_string());
             MigrationError::Runtime {
@@ -489,7 +477,6 @@ async fn upload_blobs_api_job(
         );
         match upload_blob(&agent, file).await {
             Ok(_) => {
-                successful_blobs.push(blob_cid_str.clone());
                 {
                     let mut st = state.write().await;
                     if let Some(r) = st.records.get_mut(&id) {
@@ -501,8 +488,20 @@ async fn upload_blobs_api_job(
                 }
             }
             Err(e) => {
+                match e {
+                    MigrationError::RateLimitReached => {
+                        tracing::error!("Rate limit reached, waiting 5 minutes");
+                        let five_minutes = Duration::from_secs(300);
+                        tokio::time::sleep(five_minutes).await;
+                    }
+                    _ => {
+                        tracing::error!(
+                            "Unexpected error when uploading blob: {}",
+                            e.to_string()
+                        );
+                    }
+                }
                 tracing::error!("Failed to upload blob {}: {}", blob_cid_str, e);
-                invalid_blobs.push(blob_cid_str.clone());
                 {
                     let mut st = state.write().await;
                     if let Some(r) = st.records.get_mut(&id) {
