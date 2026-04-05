@@ -489,7 +489,12 @@ async fn handle_rate_limit_error(error: &MigrationError, blob_id: &str, operatio
             );
         }
     }
-    tracing::error!("[{}] Failed to process blob {} with error: {}", operation, blob_id, error);
+    tracing::error!(
+        "[{}] Failed to process blob {} with error: {}",
+        operation,
+        blob_id,
+        error
+    );
 }
 
 #[cfg(test)]
