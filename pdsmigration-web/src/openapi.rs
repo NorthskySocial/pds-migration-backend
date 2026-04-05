@@ -21,6 +21,7 @@ use crate::api::*;
         migrate_plc_api,
         get_service_auth_api,
         enqueue_export_blobs_job_api,
+        enqueue_upload_blobs_job_api,
         list_jobs_api,
         get_job_api,
         cancel_job_api,
