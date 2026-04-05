@@ -1,5 +1,6 @@
 use crate::errors::ApiError;
 use bsky_sdk::api::agent::Configure;
+use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
     build_agent, download_blob, login_helper, missing_blobs, upload_blob, ExportBlobsRequest,
@@ -18,6 +19,8 @@ use tokio::task::JoinHandle;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB: usize = 3;
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -25,7 +28,7 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Display, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
     ExportBlobs,
@@ -85,6 +88,21 @@ pub struct JobRecord {
     pub progress: Option<JobProgress>,
 }
 
+impl JobRecord {
+    pub fn new(id: Uuid, kind: JobKind) -> Self {
+        Self {
+            id: id.to_string(),
+            kind,
+            status: JobStatus::Queued,
+            error: None,
+            created_at: now_millis(),
+            started_at: None,
+            finished_at: None,
+            progress: Some(JobProgress::default()),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct RunningJob {
     handle: JoinHandle<()>,
@@ -99,6 +117,57 @@ pub struct JobManager {
 struct JobState {
     records: HashMap<Uuid, JobRecord>,
     running: HashMap<Uuid, RunningJob>,
+}
+
+impl JobState {
+    pub fn set_running(&mut self, id: Uuid) {
+        if let Some(r) = self.records.get_mut(&id) {
+            r.status = JobStatus::Running;
+            r.started_at = Some(now_millis());
+        }
+    }
+
+    pub fn finalize(&mut self, id: Uuid, result: Result<(), MigrationError>) {
+        if let Some(r) = self.records.get_mut(&id) {
+            match result {
+                Ok(_) => {
+                    r.status = JobStatus::Success;
+                }
+                Err(e) => {
+                    r.status = JobStatus::Error;
+                    r.error = Some(format!("{}", e));
+                }
+            }
+            r.finished_at = Some(now_millis());
+        }
+        self.running.remove(&id);
+    }
+
+    pub fn update_total(&mut self, id: Uuid, total: u64) {
+        if let Some(r) = self.records.get_mut(&id) {
+            if let Some(progress) = r.progress.as_mut() {
+                progress.total = Some(total);
+            }
+        }
+    }
+
+    pub fn record_success(&mut self, id: Uuid, blob_id: String) {
+        if let Some(r) = self.records.get_mut(&id) {
+            if let Some(progress) = r.progress.as_mut() {
+                progress.successful_blobs += 1;
+                progress.successful_blobs_ids.push(blob_id);
+            }
+        }
+    }
+
+    pub fn record_failure(&mut self, id: Uuid, blob_id: String) {
+        if let Some(r) = self.records.get_mut(&id) {
+            if let Some(progress) = r.progress.as_mut() {
+                progress.invalid_blobs += 1;
+                progress.invalid_blob_ids.push(blob_id);
+            }
+        }
+    }
 }
 
 impl JobManager {
@@ -135,22 +204,7 @@ impl JobManager {
     #[tracing::instrument(skip(self))]
     pub async fn spawn_upload_blobs(&self, request: UploadBlobsRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
-        let rec = JobRecord {
-            id: id.to_string(),
-            kind: JobKind::UploadBlobs,
-            status: JobStatus::Queued,
-            error: None,
-            created_at: now_millis(),
-            started_at: None,
-            finished_at: None,
-            progress: Some(JobProgress {
-                successful_blobs: 0,
-                successful_blobs_ids: vec![],
-                invalid_blobs: 0,
-                invalid_blob_ids: vec![],
-                total: None,
-            }),
-        };
+        let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
         {
             let mut st = self.state.write().await;
@@ -161,32 +215,13 @@ impl JobManager {
         let handle = tokio::spawn(async move {
             {
                 let mut st = state.write().await;
-                if let Some(r) = st.records.get_mut(&id) {
-                    r.status = JobStatus::Running;
-                    r.started_at = Some(now_millis());
-                }
+                st.set_running(id);
             }
 
             let result = upload_blobs_api_job(id, state.clone(), request).await;
-
-            match result {
-                Ok(_) => {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        r.status = JobStatus::Success;
-                        r.finished_at = Some(now_millis());
-                    }
-                    st.running.remove(&id);
-                }
-                Err(e) => {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        r.status = JobStatus::Error;
-                        r.error = Some(format!("{}", e));
-                        r.finished_at = Some(now_millis());
-                    }
-                    st.running.remove(&id);
-                }
+            {
+                let mut st = state.write().await;
+                st.finalize(id, result);
             }
         });
 
@@ -201,22 +236,7 @@ impl JobManager {
     #[tracing::instrument(skip(self))]
     pub async fn spawn_export_blobs(&self, request: ExportBlobsRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
-        let rec = JobRecord {
-            id: id.to_string(),
-            kind: JobKind::ExportBlobs,
-            status: JobStatus::Queued,
-            error: None,
-            created_at: now_millis(),
-            started_at: None,
-            finished_at: None,
-            progress: Some(JobProgress {
-                successful_blobs: 0,
-                successful_blobs_ids: vec![],
-                invalid_blobs: 0,
-                invalid_blob_ids: vec![],
-                total: None,
-            }),
-        };
+        let rec = JobRecord::new(id, JobKind::ExportBlobs);
 
         {
             let mut st = self.state.write().await;
@@ -227,32 +247,12 @@ impl JobManager {
         let handle = tokio::spawn(async move {
             {
                 let mut st = state.write().await;
-                if let Some(r) = st.records.get_mut(&id) {
-                    r.status = JobStatus::Running;
-                    r.started_at = Some(now_millis());
-                }
+                st.set_running(id);
             }
-
             let result = export_blobs_api_job(id, state.clone(), request).await;
-
-            match result {
-                Ok(_) => {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        r.status = JobStatus::Success;
-                        r.finished_at = Some(now_millis());
-                    }
-                    st.running.remove(&id);
-                }
-                Err(e) => {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        r.status = JobStatus::Error;
-                        r.error = Some(format!("{}", e));
-                        r.finished_at = Some(now_millis());
-                    }
-                    st.running.remove(&id);
-                }
+            {
+                let mut st = state.write().await;
+                st.finalize(id, result);
             }
         });
 
@@ -288,11 +288,7 @@ async fn export_blobs_api_job(
     let missing_blobs = missing_blobs(&agent).await?;
     {
         let mut st = state.write().await;
-        if let Some(r) = st.records.get_mut(&id) {
-            if let Some(progress) = r.progress.as_mut() {
-                progress.total = Some(missing_blobs.len() as u64);
-            }
-        }
+        st.update_total(id, missing_blobs.len() as u64);
     }
     let session = login_helper(
         &agent,
@@ -380,37 +376,14 @@ async fn export_blobs_api_job(
 
                     {
                         let mut st = state.write().await;
-                        if let Some(r) = st.records.get_mut(&id) {
-                            if let Some(progress) = r.progress.as_mut() {
-                                progress.successful_blobs += 1;
-                                progress.successful_blobs_ids.push(blob_cid_str.clone());
-                            }
-                        }
+                        st.record_success(id, blob_cid_str.clone());
                     }
                 }
                 Err(e) => {
-                    match e {
-                        MigrationError::RateLimitReached => {
-                            tracing::error!("Rate limit reached, waiting 5 minutes");
-                            let five_minutes = Duration::from_secs(300);
-                            tokio::time::sleep(five_minutes).await;
-                        }
-                        _ => {
-                            tracing::error!(
-                                "Unexpected error when downloading blob: {}",
-                                e.to_string()
-                            );
-                        }
-                    }
-                    tracing::error!("Failed to download missing blob with cid: {}", blob_cid_str);
+                    handle_rate_limit_error(&e, &blob_cid_str, JobKind::ExportBlobs).await;
                     {
                         let mut st = state.write().await;
-                        if let Some(r) = st.records.get_mut(&id) {
-                            if let Some(progress) = r.progress.as_mut() {
-                                progress.invalid_blobs += 1;
-                                progress.invalid_blob_ids.push(blob_cid_str.clone());
-                            }
-                        }
+                        st.record_failure(id, blob_cid_str.clone());
                     }
                 }
             }
@@ -455,61 +428,218 @@ async fn upload_blobs_api_job(
 
     {
         let mut st = state.write().await;
-        if let Some(r) = st.records.get_mut(&id) {
-            if let Some(progress) = r.progress.as_mut() {
-                progress.total = Some(blobs_in_dir.len() as u64);
-            }
-        }
+        st.update_total(id, blobs_in_dir.len() as u64);
     }
 
-    for blob in blobs_in_dir {
-        let file = tokio::fs::read(blob.path()).await.map_err(|error| {
-            tracing::error!("{}", error.to_string());
-            MigrationError::Runtime {
-                message: "Failed to read next blob".to_string(),
-            }
-        })?;
-        let blob_cid_str = blob.file_name().to_string_lossy().to_string();
-        tracing::info!(
-            "Uploading blob: {:?} with size {}...",
-            blob_cid_str,
-            file.len()
-        );
-        match upload_blob(&agent, file).await {
-            Ok(_) => {
-                let mut st = state.write().await;
-                if let Some(r) = st.records.get_mut(&id) {
-                    if let Some(progress) = r.progress.as_mut() {
-                        progress.successful_blobs += 1;
-                        progress.successful_blobs_ids.push(blob_cid_str.clone());
+    // process blobs in parallel
+    futures_util::stream::iter(blobs_in_dir.into_iter())
+        .map(|blob| {
+            let agent = agent.clone();
+            let state = state.clone();
+            async move {
+                let file = match tokio::fs::read(blob.path()).await {
+                    Ok(data) => data,
+                    Err(error) => {
+                        tracing::error!("{}", error.to_string());
+                        let blob_cid_str = blob.file_name().to_string_lossy().to_string();
+                        let mut st = state.write().await;
+                        st.record_failure(id, blob_cid_str);
+                        return;
+                    }
+                };
+                let blob_cid_str = blob.file_name().to_string_lossy().to_string();
+                tracing::info!(
+                    "Uploading blob: {:?} with size {}...",
+                    blob_cid_str,
+                    file.len()
+                );
+                match upload_blob(&agent, file).await {
+                    Ok(_) => {
+                        let mut st = state.write().await;
+                        st.record_success(id, blob_cid_str.clone());
+                    }
+                    Err(e) => {
+                        handle_rate_limit_error(&e, &blob_cid_str, JobKind::UploadBlobs).await;
+                        let mut st = state.write().await;
+                        st.record_failure(id, blob_cid_str.clone());
                     }
                 }
             }
-            Err(e) => {
-                match e {
-                    MigrationError::RateLimitReached => {
-                        tracing::error!("Rate limit reached, waiting 5 minutes");
-                        let five_minutes = Duration::from_secs(300);
-                        tokio::time::sleep(five_minutes).await;
-                    }
-                    _ => {
-                        tracing::error!("Unexpected error when uploading blob: {}", e.to_string());
-                    }
-                }
-                tracing::error!("Failed to upload blob {}: {}", blob_cid_str, e);
-                {
-                    let mut st = state.write().await;
-                    if let Some(r) = st.records.get_mut(&id) {
-                        if let Some(progress) = r.progress.as_mut() {
-                            progress.invalid_blobs += 1;
-                            progress.invalid_blob_ids.push(blob_cid_str.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
+        })
+        .buffer_unordered(MAX_CONCURRENT_BLOB_PROCESSES_PER_JOB)
+        .collect::<Vec<_>>()
+        .await;
 
     tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
     Ok(())
+}
+
+async fn handle_rate_limit_error(error: &MigrationError, blob_id: &str, operation: JobKind) {
+    match error {
+        MigrationError::RateLimitReached => {
+            tracing::error!("[{}] Rate limit reached, waiting 5 minutes", operation);
+            let five_minutes = Duration::from_secs(300);
+            tokio::time::sleep(five_minutes).await;
+        }
+        _ => {
+            tracing::error!(
+                "[{}] Unexpected error when processing blob: {}",
+                operation,
+                error.to_string()
+            );
+        }
+    }
+    tracing::error!(
+        "[{}] Failed to process blob {} with error: {}",
+        operation,
+        blob_id,
+        error
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_job_record_new_export_blobs() {
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+
+        assert_eq!(record.id, id.to_string());
+        assert!(matches!(record.kind, JobKind::ExportBlobs));
+        assert_eq!(record.status, JobStatus::Queued);
+        assert!(record.error.is_none());
+        assert!(record.started_at.is_none());
+        assert!(record.finished_at.is_none());
+        assert!(record.progress.is_some());
+
+        let progress = record.progress.unwrap();
+        assert_eq!(progress.successful_blobs, 0);
+        assert_eq!(progress.invalid_blobs, 0);
+        assert!(progress.successful_blobs_ids.is_empty());
+        assert!(progress.invalid_blob_ids.is_empty());
+        assert!(progress.total.is_none());
+    }
+
+    #[test]
+    fn test_job_record_new_upload_blobs() {
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::UploadBlobs);
+
+        assert!(matches!(record.kind, JobKind::UploadBlobs));
+    }
+
+    #[test]
+    fn test_job_state_set_running() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        state.set_running(id);
+
+        let record = state.records.get(&id).unwrap();
+        assert_eq!(record.status, JobStatus::Running);
+        assert!(record.started_at.is_some());
+    }
+
+    #[test]
+    fn test_job_state_finalize_success() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        state.finalize(id, Ok(()));
+
+        let record = state.records.get(&id).unwrap();
+        assert_eq!(record.status, JobStatus::Success);
+        assert!(record.finished_at.is_some());
+        assert!(record.error.is_none());
+    }
+
+    #[test]
+    fn test_job_state_finalize_error() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        let err = MigrationError::Runtime {
+            message: "test error".to_string(),
+        };
+        state.finalize(id, Err(err));
+
+        let record = state.records.get(&id).unwrap();
+        assert_eq!(record.status, JobStatus::Error);
+        assert!(record.finished_at.is_some());
+        assert!(record.error.as_ref().unwrap().contains("test error"));
+    }
+
+    #[test]
+    fn test_job_state_update_total() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        state.update_total(id, 42);
+
+        let record = state.records.get(&id).unwrap();
+        assert_eq!(record.progress.as_ref().unwrap().total, Some(42));
+    }
+
+    #[test]
+    fn test_job_state_record_success() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        state.record_success(id, "blob1".to_string());
+        state.record_success(id, "blob2".to_string());
+
+        let record = state.records.get(&id).unwrap();
+        let progress = record.progress.as_ref().unwrap();
+        assert_eq!(progress.successful_blobs, 2);
+        assert_eq!(progress.successful_blobs_ids, vec!["blob1", "blob2"]);
+    }
+
+    #[test]
+    fn test_job_state_record_failure() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportBlobs);
+        state.records.insert(id, record);
+
+        state.record_failure(id, "bad_blob1".to_string());
+        state.record_failure(id, "bad_blob2".to_string());
+
+        let record = state.records.get(&id).unwrap();
+        let progress = record.progress.as_ref().unwrap();
+        assert_eq!(progress.invalid_blobs, 2);
+        assert_eq!(progress.invalid_blob_ids, vec!["bad_blob1", "bad_blob2"]);
+    }
+
+    #[test]
+    fn test_job_state_mixed_blob_results() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::UploadBlobs);
+        state.records.insert(id, record);
+
+        state.update_total(id, 5);
+        state.record_success(id, "ok1".to_string());
+        state.record_success(id, "ok2".to_string());
+        state.record_success(id, "ok3".to_string());
+        state.record_failure(id, "fail1".to_string());
+        state.record_failure(id, "fail2".to_string());
+
+        let record = state.records.get(&id).unwrap();
+        let progress = record.progress.as_ref().unwrap();
+        assert_eq!(progress.total, Some(5));
+        assert_eq!(progress.successful_blobs, 3);
+        assert_eq!(progress.invalid_blobs, 2);
+    }
 }
