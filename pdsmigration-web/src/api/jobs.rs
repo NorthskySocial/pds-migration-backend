@@ -146,9 +146,7 @@ pub async fn get_job_api(
     let id = path.into_inner().0;
 
     match jobs.get(id).await {
-        Some(job) => {
-            Ok(HttpResponse::Ok().json(job))
-        }
+        Some(job) => Ok(HttpResponse::Ok().json(job)),
         None => {
             tracing::info!(request_guid = %id, "Job not found");
             Ok(HttpResponse::NotFound().finish())

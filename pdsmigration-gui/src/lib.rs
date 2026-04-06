@@ -465,6 +465,7 @@ pub async fn export_missing_blobs(pds_session: PdsSession) -> Result<(), GuiErro
         did,
         origin_token: old_token,
         destination_token: new_token,
+        is_missing_blob_request: false,
     };
     match pdsmigration_common::export_blobs_api(request).await {
         Ok(_) => {

@@ -14,6 +14,7 @@ pub struct ExportBlobsRequest {
     pub did: String,
     pub origin_token: String,
     pub destination_token: String,
+    pub is_missing_blob_request: bool,
 }
 
 impl std::fmt::Debug for ExportBlobsRequest {
@@ -24,6 +25,7 @@ impl std::fmt::Debug for ExportBlobsRequest {
             .field("did", &self.did)
             .field("origin_token", &"[REDACTED]")
             .field("destination_token", &"[REDACTED]")
+            .field("is_missing_blob_request", &self.is_missing_blob_request)
             .finish()
     }
 }
@@ -67,6 +69,18 @@ pub async fn export_blobs_api(
         }
     };
     path.push(session.did.as_str().replace(":", "-"));
+
+    if req.is_missing_blob_request {
+        if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
+            if e.kind() != ErrorKind::NotFound {
+                return Err(MigrationError::Runtime {
+                    message: format!("Failed to clean directory: {}", e),
+                });
+            }
+        }
+        tracing::info!("Cleaned directory for missing blob request");
+    }
+
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {
             tracing::info!("Successfully created directory");
@@ -173,6 +187,7 @@ mod tests {
             did: "did:plc:example123".to_string(),
             origin_token: "secret-origin-token-12345".to_string(),
             destination_token: "secret-destination-token-67890".to_string(),
+            is_missing_blob_request: false,
         };
 
         let debug_output = format!("{:?}", request);

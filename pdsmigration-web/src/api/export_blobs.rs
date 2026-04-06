@@ -18,6 +18,7 @@ pub struct ExportBlobsApiRequest {
     pub origin_token: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub destination_token: String,
+    pub is_missing_blob_request: bool,
 }
 
 impl From<ExportBlobsApiRequest> for ExportBlobsRequest {
@@ -28,6 +29,7 @@ impl From<ExportBlobsApiRequest> for ExportBlobsRequest {
             did: req.did,
             origin_token: req.origin_token,
             destination_token: req.destination_token,
+            is_missing_blob_request: req.is_missing_blob_request,
         }
     }
 }

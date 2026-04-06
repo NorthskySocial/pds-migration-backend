@@ -554,7 +554,8 @@ mod integration_tests {
             "origin": "https://origin.pds.host",
             "did": "did:plc:test123456789",
             "origin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-            "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
+            "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
+            "is_missing_blob_request": false
         });
 
         let req = test::TestRequest::post()
@@ -601,7 +602,8 @@ mod integration_tests {
                 "origin": "https://origin.pds.host",
                 "did": "did:plc:test123456789",
                 "origin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-                "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
+                "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
+                "is_missing_blob_request": false
             });
 
             let req = test::TestRequest::post()
@@ -642,7 +644,8 @@ mod integration_tests {
             "origin": "https://origin.pds.host",
             "did": "did:plc:test123456789",
             "origin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-            "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
+            "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
+            "is_missing_blob_request": false
         });
 
         let req = test::TestRequest::post()

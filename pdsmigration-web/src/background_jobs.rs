@@ -309,6 +309,16 @@ async fn export_blobs_api_job(
         }
     };
     path.push(session.did.as_str().replace(":", "-"));
+    if req.is_missing_blob_request {
+        if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
+            if e.kind() != ErrorKind::NotFound {
+                return Err(MigrationError::Runtime {
+                    message: format!("Failed to clean directory: {}", e),
+                });
+            }
+        }
+        tracing::info!("Cleaned directory for missing blob request");
+    }
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {
             tracing::info!("Successfully created directory");
