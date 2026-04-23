@@ -56,13 +56,21 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
 
     // Upload the downloaded file to AWS S3
     let endpoint_url = env::var("ENDPOINT").map_err(|e| {
-        tracing::error!("[{}] Failed to get ENDPOINT environment variable: {}", did, e);
+        tracing::error!(
+            "[{}] Failed to get ENDPOINT environment variable: {}",
+            did,
+            e
+        );
         ApiError::Runtime {
             message: e.to_string(),
         }
     })?;
 
-    tracing::debug!("[{}] Loading AWS config with endpoint: {}", did, endpoint_url);
+    tracing::debug!(
+        "[{}] Loading AWS config with endpoint: {}",
+        did,
+        endpoint_url
+    );
     let config = aws_config::from_env()
         .region("auto")
         .endpoint_url(&endpoint_url)
@@ -125,6 +133,9 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         }
     };
 
-    tracing::info!("[{}] Repository exported and uploaded to S3 successfully", did);
+    tracing::info!(
+        "[{}] Repository exported and uploaded to S3 successfully",
+        did
+    );
     Ok(HttpResponse::Ok().finish())
 }

@@ -55,7 +55,11 @@ pub async fn create_account(
             reqwest::StatusCode::BAD_REQUEST => {
                 let error_message = try_parse_error_response(output).await;
 
-                tracing::error!("[{}] Failed to create account - Bad Request: {}", did_str, error_message);
+                tracing::error!(
+                    "[{}] Failed to create account - Bad Request: {}",
+                    did_str,
+                    error_message
+                );
                 return Err(MigrationError::Upstream {
                     message: error_message,
                 });
@@ -124,7 +128,11 @@ pub async fn create_account_without_pds(
             reqwest::StatusCode::BAD_REQUEST => {
                 let error_message = try_parse_error_response(output).await;
 
-                tracing::error!("[{}] Failed to create account - Bad Request: {}", did_str, error_message);
+                tracing::error!(
+                    "[{}] Failed to create account - Bad Request: {}",
+                    did_str,
+                    error_message
+                );
                 return Err(MigrationError::Upstream {
                     message: error_message,
                 });
@@ -147,7 +155,11 @@ pub async fn create_account_without_pds(
             }
         },
         Err(e) => {
-            tracing::error!("[{}] Failed to create account - Error sending request: {:?}", did_str, e);
+            tracing::error!(
+                "[{}] Failed to create account - Error sending request: {:?}",
+                did_str,
+                e
+            );
             return Err(MigrationError::Runtime {
                 message: e.to_string(),
             });

@@ -136,7 +136,12 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Mig
     let client = reqwest::Client::new();
     let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", pds_host);
 
-    tracing::debug!("[{}] Uploading blob of size {} to {}", did_str, input.len(), url);
+    tracing::debug!(
+        "[{}] Uploading blob of size {} to {}",
+        did_str,
+        input.len(),
+        url
+    );
     let result = client
         .post(&url)
         .header("Content-Type", "application/octet-stream")
@@ -165,7 +170,11 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Mig
                     Ok(())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
-                    tracing::error!("[{}] BadRequest Error uploading blob: {:?}", did_str, output);
+                    tracing::error!(
+                        "[{}] BadRequest Error uploading blob: {:?}",
+                        did_str,
+                        output
+                    );
                     tracing::error!("[{}] Response body: {:?}", did_str, output.text().await);
                     Err(MigrationError::Upstream {
                         message: "BadRequest uploading blob".to_string(),
@@ -229,7 +238,11 @@ pub async fn download_blob(
                     Ok(output.bytes_stream())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
-                    tracing::error!("[{}] BadRequest Error downloading blob: {:?}", did_str, output);
+                    tracing::error!(
+                        "[{}] BadRequest Error downloading blob: {:?}",
+                        did_str,
+                        output
+                    );
                     Err(MigrationError::Upstream {
                         message: "BadRequest downloading blob".to_string(),
                     })

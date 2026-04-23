@@ -77,7 +77,11 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                     message: "Failed to flush file".to_string(),
                 }
             })?;
-            tracing::info!("[{}] Successfully exported repository to {}", did, path.display());
+            tracing::info!(
+                "[{}] Successfully exported repository to {}",
+                did,
+                path.display()
+            );
             return Ok(());
         }
         Err(e) => {

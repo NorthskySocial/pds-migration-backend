@@ -40,7 +40,11 @@ pub async fn download_repo(
                     Ok(output.bytes_stream())
                 }
                 _ => {
-                    tracing::error!("[{}] Runtime Error downloading Repo: {:?}", request.did.as_str(), output);
+                    tracing::error!(
+                        "[{}] Runtime Error downloading Repo: {:?}",
+                        request.did.as_str(),
+                        output
+                    );
                     Err(MigrationError::Upstream {
                         message: "Runtime Error downloading Repo".to_string(),
                     })
@@ -48,7 +52,11 @@ pub async fn download_repo(
             }
         }
         Err(e) => {
-            tracing::error!("[{}] Unexpected Error downloading Repo: {:?}", request.did.as_str(), e);
+            tracing::error!(
+                "[{}] Unexpected Error downloading Repo: {:?}",
+                request.did.as_str(),
+                e
+            );
             Err(MigrationError::Runtime {
                 message: "Unexpected Error downloading Repo".to_string(),
             })
