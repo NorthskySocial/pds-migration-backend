@@ -41,13 +41,13 @@ impl From<UploadBlobsApiRequest> for UploadBlobsRequest {
 #[tracing::instrument(skip(req))]
 #[post("/upload-blobs")]
 pub async fn upload_blobs_api(req: Json<UploadBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Upload blobs request received");
     let req = req.into_inner();
     let did = req.did.clone();
+    tracing::info!("[{}] Upload blobs request received", did);
     pdsmigration_common::upload_blobs_api(req.into())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to upload blobs for DID {}: {}", did, e);
+            tracing::error!("[{}] Failed to upload blobs: {}", did, e);
             match e {
                 MigrationError::Validation { .. } => ApiError::Runtime {
                     message: "Unexpected error occurred".to_string(),

@@ -45,7 +45,9 @@ pub async fn import_pds_api(
     req: Json<ImportPDSApiRequest>,
     config: Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Import repository request received");
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Import repository request received", did);
     let endpoint_url = config.external_services.s3_endpoint.clone();
     let config = aws_config::from_env()
         .region("auto")
@@ -53,9 +55,6 @@ pub async fn import_pds_api(
         .load()
         .await;
     let client = aws_sdk_s3::Client::new(&config);
-
-    let req_inner = req.into_inner();
-    let did = req_inner.did.clone();
 
     let bucket_name = "migration".to_string();
     let file_name = did.replace(":", "-") + ".car";
@@ -85,7 +84,7 @@ pub async fn import_pds_api(
         message: error.to_string(),
     })?;
     pdsmigration_common::import_pds_api(req_inner.into()).await?;
-    tracing::info!("Repository imported successfully");
+    tracing::info!("[{}] Repository imported successfully", did);
 
     Ok(HttpResponse::Ok().finish())
 }

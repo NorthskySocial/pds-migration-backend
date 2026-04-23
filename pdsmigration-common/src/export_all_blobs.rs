@@ -60,14 +60,15 @@ pub async fn export_all_blobs_api(
         req.origin_token.as_str(),
     )
     .await?;
+    let did = session.did.as_str();
     let blobs = list_all_blobs(&agent).await?;
     let mut path = std::env::current_dir().unwrap();
-    path.push(session.did.as_str().replace(":", "-"));
+    path.push(did.replace(":", "-"));
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {}
         Err(e) => {
             if e.kind() != ErrorKind::AlreadyExists {
-                tracing::error!("Error creating directory: {:?}", e);
+                tracing::error!("[{}] Error creating directory: {:?}", did, e);
                 return Err(MigrationError::Runtime {
                     message: e.to_string(),
                 });
@@ -101,7 +102,7 @@ pub async fn export_all_blobs_api(
             };
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
-                    tracing::info!("Successfully fetched missing blob");
+                    tracing::info!("[{}] Successfully fetched missing blob", did);
                     let mut path = std::env::current_dir().unwrap();
                     path.push(session.did.as_str().replace(":", "-"));
                     path.push(
@@ -124,7 +125,7 @@ pub async fn export_all_blobs_api(
                 Err(e) => {
                     match e {
                         MigrationError::RateLimitReached => {
-                            tracing::error!("Rate limit reached, waiting 5 minutes");
+                            tracing::error!("[{}] Rate limit reached, waiting 5 minutes", did);
                             let five_minutes = Duration::from_secs(300);
                             tokio::time::sleep(five_minutes).await;
                         }
@@ -132,7 +133,7 @@ pub async fn export_all_blobs_api(
                             //todo
                         }
                     }
-                    tracing::error!("Failed to determine missing blobs");
+                    tracing::error!("[{}] Failed to determine missing blobs", did);
                     failed_blobs.push(format!("{blob:?}"));
                 }
             }

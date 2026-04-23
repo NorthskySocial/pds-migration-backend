@@ -42,14 +42,13 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
 #[tracing::instrument(skip(req))]
 #[post("/export-repo")]
 pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Export repository request received");
-    // Download the repository file locally
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
+    tracing::info!("[{}] Export repository request received", did);
     pdsmigration_common::export_pds_api(req_inner.into())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to export repository: {}", e);
+            tracing::error!("[{}] Failed to export repository: {}", did, e);
             ApiError::Runtime {
                 message: e.to_string(),
             }
@@ -57,13 +56,21 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
 
     // Upload the downloaded file to AWS S3
     let endpoint_url = env::var("ENDPOINT").map_err(|e| {
-        tracing::error!("Failed to get ENDPOINT environment variable: {}", e);
+        tracing::error!(
+            "[{}] Failed to get ENDPOINT environment variable: {}",
+            did,
+            e
+        );
         ApiError::Runtime {
             message: e.to_string(),
         }
     })?;
 
-    tracing::debug!("Loading AWS config with endpoint: {}", endpoint_url);
+    tracing::debug!(
+        "[{}] Loading AWS config with endpoint: {}",
+        did,
+        endpoint_url
+    );
     let config = aws_config::from_env()
         .region("auto")
         .endpoint_url(&endpoint_url)
@@ -76,7 +83,8 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     let key = "migration/".to_string() + &did.replace(":", "-") + ".car";
 
     tracing::debug!(
-        "Uploading file {} to S3 bucket {} with key {}",
+        "[{}] Uploading file {} to S3 bucket {} with key {}",
+        did,
         file_name,
         bucket_name,
         key
@@ -86,12 +94,13 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         .await
     {
         Ok(body) => {
-            tracing::debug!("Successfully created ByteStream from file");
+            tracing::debug!("[{}] Successfully created ByteStream from file", did);
             body
         }
         Err(e) => {
             tracing::error!(
-                "Failed to create ByteStream from file {}: {:?}",
+                "[{}] Failed to create ByteStream from file {}: {:?}",
+                did,
                 file_name,
                 e
             );
@@ -112,7 +121,8 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         Ok(_) => {}
         Err(e) => {
             tracing::error!(
-                "Failed to upload to S3: bucket={}, key={}, error={:?}",
+                "[{}] Failed to upload to S3: bucket={}, key={}, error={:?}",
+                did,
                 bucket_name,
                 key,
                 e
@@ -123,6 +133,9 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         }
     };
 
-    tracing::info!("Repository exported and uploaded to S3 successfully");
+    tracing::info!(
+        "[{}] Repository exported and uploaded to S3 successfully",
+        did
+    );
     Ok(HttpResponse::Ok().finish())
 }

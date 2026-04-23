@@ -6,6 +6,8 @@ use ipld_core::ipld::Ipld;
 #[tracing::instrument(skip(agent))]
 pub async fn export_preferences(agent: &BskyAgent) -> Result<Preferences, MigrationError> {
     use bsky_sdk::api::app::bsky::actor::get_preferences::{Parameters, ParametersData};
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .app
@@ -17,7 +19,7 @@ pub async fn export_preferences(agent: &BskyAgent) -> Result<Preferences, Migrat
         })
         .await
         .map_err(|error| {
-            tracing::error!("Failed to export preferences: {:?}", error);
+            tracing::error!("[{}] Failed to export preferences: {:?}", did_str, error);
             MigrationError::Runtime {
                 message: error.to_string(),
             }
@@ -31,6 +33,8 @@ pub async fn import_preferences(
     preferences: Preferences,
 ) -> Result<(), MigrationError> {
     use bsky_sdk::api::app::bsky::actor::put_preferences::{Input, InputData};
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     agent
         .api
         .app
@@ -42,7 +46,7 @@ pub async fn import_preferences(
         })
         .await
         .map_err(|error| {
-            tracing::error!("Failed to import preferences: {:?}", error);
+            tracing::error!("[{}] Failed to import preferences: {:?}", did_str, error);
             MigrationError::Runtime {
                 message: error.to_string(),
             }

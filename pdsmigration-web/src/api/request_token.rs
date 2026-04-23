@@ -43,12 +43,13 @@ impl From<RequestTokenApiRequest> for RequestTokenRequest {
 pub async fn request_token_api(
     req: Json<RequestTokenApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Request token request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Request token request received", did);
     pdsmigration_common::request_token_api(req.into())
         .await
         .map_err(|e| {
-            tracing::error!("Failed to request token: {}", e);
+            tracing::error!("[{}] Failed to request token: {}", did, e);
             ApiError::from(e)
         })?;
     Ok(HttpResponse::Ok().finish())

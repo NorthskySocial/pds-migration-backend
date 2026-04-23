@@ -56,8 +56,9 @@ impl From<MissingBlobsResponse> for MissingBlobsApiResponse {
 pub async fn missing_blobs_api(
     req: Json<MissingBlobsApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Missing blobs request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Missing blobs request received", did);
     let response = pdsmigration_common::missing_blobs_api(req.into()).await?;
     let response: MissingBlobsApiResponse = response.into();
     Ok(HttpResponse::Ok()

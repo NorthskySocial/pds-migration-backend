@@ -30,17 +30,21 @@ pub async fn download_repo(
                     .unwrap_or(1000),
             };
             if ratelimit_remaining < 100 {
-                tracing::error!("Ratelimit reached");
+                tracing::error!("[{}] Ratelimit reached", request.did.as_str());
                 return Err(MigrationError::RateLimitReached);
             }
 
             match output.status() {
                 reqwest::StatusCode::OK => {
-                    tracing::info!("Started downloading Repo");
+                    tracing::info!("[{}] Started downloading Repo", request.did.as_str());
                     Ok(output.bytes_stream())
                 }
                 _ => {
-                    tracing::error!("Runtime Error downloading Repo: {:?}", output);
+                    tracing::error!(
+                        "[{}] Runtime Error downloading Repo: {:?}",
+                        request.did.as_str(),
+                        output
+                    );
                     Err(MigrationError::Upstream {
                         message: "Runtime Error downloading Repo".to_string(),
                     })
@@ -48,7 +52,11 @@ pub async fn download_repo(
             }
         }
         Err(e) => {
-            tracing::error!("Unexpected Error downloading Repo: {:?}", e);
+            tracing::error!(
+                "[{}] Unexpected Error downloading Repo: {:?}",
+                request.did.as_str(),
+                e
+            );
             Err(MigrationError::Runtime {
                 message: "Unexpected Error downloading Repo".to_string(),
             })
@@ -58,6 +66,8 @@ pub async fn download_repo(
 
 #[tracing::instrument(skip(agent))]
 pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     agent
         .api
         .com
@@ -66,7 +76,7 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
         .import_repo(tokio::fs::read(filepath).await.unwrap())
         .await
         .map_err(|error| {
-            tracing::error!("Failed to import account: {:?}", error);
+            tracing::error!("[{}] Failed to import account: {:?}", did_str, error);
             MigrationError::Runtime {
                 message: error.to_string(),
             }
@@ -77,6 +87,7 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
 #[tracing::instrument(skip(agent))]
 pub async fn account_export(agent: &BskyAgent, did: &Did) -> Result<(), MigrationError> {
     use bsky_sdk::api::com::atproto::sync::get_repo::{Parameters, ParametersData};
+    let did_str = did.as_str();
     let result = agent
         .api
         .com
@@ -95,16 +106,16 @@ pub async fn account_export(agent: &BskyAgent, did: &Did) -> Result<(), Migratio
             tokio::fs::write(did.as_str().to_string().replace(":", "-") + ".car", output)
                 .await
                 .map_err(|error| {
-                    tracing::error!("Failed write repo bytes to file: {:?}", error);
+                    tracing::error!("[{}] Failed write repo bytes to file: {:?}", did_str, error);
                     MigrationError::Runtime {
                         message: error.to_string(),
                     }
                 })?;
-            tracing::info!("write success");
+            tracing::info!("[{}] write success", did_str);
             Ok(())
         }
         Err(e) => {
-            tracing::error!("Failed to export account: {:?}", e);
+            tracing::error!("[{}] Failed to export account: {:?}", did_str, e);
             Err(MigrationError::Upstream {
                 message: e.to_string(),
             })

@@ -13,6 +13,7 @@ pub async fn list_all_blobs(agent: &BskyAgent) -> Result<Vec<Cid>, MigrationErro
     let mut cursor = None;
     let mut length = None;
     let did = agent.did().await.clone().unwrap();
+    let did_str = did.as_str();
     while length.is_none() || length.unwrap() >= 500 {
         let output = agent
             .api
@@ -31,14 +32,14 @@ pub async fn list_all_blobs(agent: &BskyAgent) -> Result<Vec<Cid>, MigrationErro
             .await;
         match output {
             Ok(output) => {
-                tracing::info!("{:?}", output);
+                tracing::info!("[{}] {:?}", did_str, output);
                 cursor = output.cursor.clone();
                 length = Some(output.cids.len());
                 let mut blob_cids = output.cids.clone();
                 result.append(blob_cids.as_mut());
             }
             Err(e) => {
-                tracing::error!("{:?}", e);
+                tracing::error!("[{}] {:?}", did_str, e);
                 return Err(MigrationError::Upstream {
                     message: e.to_string(),
                 });
@@ -80,6 +81,7 @@ pub async fn missing_blobs(agent: &BskyAgent) -> Result<Vec<RecordBlob>, Migrati
 
 #[tracing::instrument(skip(agent))]
 pub async fn get_blob(agent: &BskyAgent, cid: Cid, did: Did) -> Result<Vec<u8>, ()> {
+    let did_str = did.as_str();
     let result = agent
         .api
         .com
@@ -95,11 +97,11 @@ pub async fn get_blob(agent: &BskyAgent, cid: Cid, did: Did) -> Result<Vec<u8>, 
         .await;
     match result {
         Ok(output) => {
-            tracing::debug!("Successfully fetched blob: {:?}", output);
+            tracing::debug!("[{}] Successfully fetched blob: {:?}", did_str, output);
             Ok(output.clone())
         }
         Err(e) => {
-            tracing::error!("Failed to fetch blob: {:?}", e);
+            tracing::error!("[{}] Failed to fetch blob: {:?}", did_str, e);
             Err(())
         }
     }
@@ -129,11 +131,17 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Mig
         .ok_or_else(|| MigrationError::Runtime {
             message: "No session available for upload".to_string(),
         })?;
+    let did_str = session.did.as_str();
 
     let client = reqwest::Client::new();
     let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", pds_host);
 
-    tracing::debug!("Uploading blob of size {} to {}", input.len(), url);
+    tracing::debug!(
+        "[{}] Uploading blob of size {} to {}",
+        did_str,
+        input.len(),
+        url
+    );
     let result = client
         .post(&url)
         .header("Content-Type", "application/octet-stream")
@@ -152,25 +160,29 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Mig
                 .parse::<i32>()
                 .unwrap_or(1000);
             if ratelimit_remaining < 100 {
-                tracing::error!("Ratelimit reached");
+                tracing::error!("[{}] Ratelimit reached", did_str);
                 return Err(MigrationError::RateLimitReached);
             }
 
             match output.status() {
                 reqwest::StatusCode::OK => {
-                    tracing::info!("Successfully uploaded blob");
+                    tracing::info!("[{}] Successfully uploaded blob", did_str);
                     Ok(())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
-                    tracing::error!("BadRequest Error uploading blob: {:?}", output);
-                    tracing::error!("Response body: {:?}", output.text().await);
+                    tracing::error!(
+                        "[{}] BadRequest Error uploading blob: {:?}",
+                        did_str,
+                        output
+                    );
+                    tracing::error!("[{}] Response body: {:?}", did_str, output.text().await);
                     Err(MigrationError::Upstream {
                         message: "BadRequest uploading blob".to_string(),
                     })
                 }
                 _ => {
-                    tracing::error!("Runtime Error uploading blob: {:?}", output);
-                    tracing::error!("Response body: {:?}", output.text().await);
+                    tracing::error!("[{}] Runtime Error uploading blob: {:?}", did_str, output);
+                    tracing::error!("[{}] Response body: {:?}", did_str, output.text().await);
                     Err(MigrationError::Upstream {
                         message: "Runtime Error uploading blob".to_string(),
                     })
@@ -178,7 +190,7 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Mig
             }
         }
         Err(e) => {
-            tracing::error!("Unexpected Error uploading blob: {:?}", e);
+            tracing::error!("[{}] Unexpected Error uploading blob: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: "Unexpected Error uploading blob".to_string(),
             })
@@ -192,7 +204,8 @@ pub async fn download_blob(
     request: &GetBlobRequest,
 ) -> Result<impl futures_core::Stream<Item = Result<bytes::Bytes, reqwest::Error>>, MigrationError>
 {
-    tracing::debug!("Downloading blob");
+    let did_str = request.did.as_str();
+    tracing::debug!("[{}] Downloading blob", did_str);
     let client = reqwest::Client::new();
     let url = format!("{pds_host}/xrpc/com.atproto.sync.getBlob");
     let result = client
@@ -215,23 +228,27 @@ pub async fn download_blob(
                 .parse::<i32>()
                 .unwrap_or(1000);
             if ratelimit_remaining < 100 {
-                tracing::error!("Ratelimit reached");
+                tracing::error!("[{}] Ratelimit reached", did_str);
                 return Err(MigrationError::RateLimitReached);
             }
 
             match output.status() {
                 reqwest::StatusCode::OK => {
-                    tracing::info!("Successfully downloaded blob");
+                    tracing::info!("[{}] Successfully downloaded blob", did_str);
                     Ok(output.bytes_stream())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
-                    tracing::error!("BadRequest Error downloading blob: {:?}", output);
+                    tracing::error!(
+                        "[{}] BadRequest Error downloading blob: {:?}",
+                        did_str,
+                        output
+                    );
                     Err(MigrationError::Upstream {
                         message: "BadRequest downloading blob".to_string(),
                     })
                 }
                 _ => {
-                    tracing::error!("Runtime Error downloading blob: {:?}", output);
+                    tracing::error!("[{}] Runtime Error downloading blob: {:?}", did_str, output);
                     Err(MigrationError::Upstream {
                         message: "Runtime Error downloading blob".to_string(),
                     })
@@ -239,7 +256,7 @@ pub async fn download_blob(
             }
         }
         Err(e) => {
-            tracing::error!("Unexpected Error downloading blob: {:?}", e);
+            tracing::error!("[{}] Unexpected Error downloading blob: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: "Unexpected Error downloading blob".to_string(),
             })
