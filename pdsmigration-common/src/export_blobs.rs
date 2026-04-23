@@ -56,6 +56,7 @@ pub async fn export_blobs_api(
         req.origin_token.as_str(),
     )
     .await?;
+    let did = session.did.as_str();
 
     // Initialize collections to track successful and failed blob IDs
     let mut successful_blobs = Vec::new();
@@ -68,7 +69,7 @@ pub async fn export_blobs_api(
             })
         }
     };
-    path.push(session.did.as_str().replace(":", "-"));
+    path.push(did.replace(":", "-"));
 
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
@@ -78,12 +79,12 @@ pub async fn export_blobs_api(
                 });
             }
         }
-        tracing::info!("Cleaned directory for missing blob request");
+        tracing::info!("[{}] Cleaned directory for missing blob request", did);
     }
 
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {
-            tracing::info!("Successfully created directory");
+            tracing::info!("[{}] Successfully created directory", did);
         }
         Err(e) => {
             if e.kind() != ErrorKind::AlreadyExists {
@@ -94,7 +95,7 @@ pub async fn export_blobs_api(
         }
     }
     for missing_blob in &missing_blobs {
-        tracing::debug!("Missing blob: {:?}", missing_blob);
+        tracing::debug!("[{}] Missing blob: {:?}", did, missing_blob);
         let session = match agent.get_session().await {
             Some(session) => session,
             None => {
@@ -135,7 +136,7 @@ pub async fn export_blobs_api(
             };
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
-                    tracing::info!("Successfully fetched missing blob");
+                    tracing::info!("[{}] Successfully fetched missing blob", did);
                     let mut path = std::env::current_dir().unwrap();
                     path.push(session.did.as_str().replace(":", "-"));
                     path.push(&blob_cid_str);
@@ -152,18 +153,18 @@ pub async fn export_blobs_api(
                 Err(e) => {
                     match e {
                         MigrationError::RateLimitReached => {
-                            tracing::error!("Rate limit reached, waiting 5 minutes");
+                            tracing::error!("[{}] Rate limit reached, waiting 5 minutes", did);
                             let five_minutes = Duration::from_secs(300);
                             tokio::time::sleep(five_minutes).await;
                         }
                         _ => {
-                            tracing::error!("Failed to determine missing blobs");
+                            tracing::error!("[{}] Failed to determine missing blobs", did);
                             return Err(MigrationError::Runtime {
                                 message: e.to_string(),
                             });
                         }
                     }
-                    tracing::error!("Failed to determine missing blobs");
+                    tracing::error!("[{}] Failed to determine missing blobs", did);
                     invalid_blobs.push(blob_cid_str);
                 }
             }

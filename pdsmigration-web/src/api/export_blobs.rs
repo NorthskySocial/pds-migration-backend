@@ -64,10 +64,11 @@ impl From<ExportBlobsResponse> for ExportBlobsApiResponse {
 #[tracing::instrument(skip(req))]
 #[post("/export-blobs")]
 pub async fn export_blobs_api(req: Json<ExportBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Export blobs request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Export blobs request received", did);
     let result = pdsmigration_common::export_blobs_api(req.into()).await?;
-    tracing::info!("Blobs exported successfully");
+    tracing::info!("[{}] Blobs exported successfully", did);
     let result: ExportBlobsApiResponse = result.into();
     Ok(HttpResponse::Ok().json(result))
 }

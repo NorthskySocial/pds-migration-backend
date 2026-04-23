@@ -32,9 +32,9 @@ pub struct ActivateAccountApiRequest {
 pub async fn activate_account_api(
     req: Json<ActivateAccountApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Activate account request received");
     let req = req.into_inner();
     let did = req.did.clone();
+    tracing::info!("[{}] Activate account request received", did);
     let token = req.token.clone();
     let pds_host = req.pds_host.clone();
     pdsmigration_common::activate_account(pds_host.as_str(), did.as_str(), token.as_str()).await?;

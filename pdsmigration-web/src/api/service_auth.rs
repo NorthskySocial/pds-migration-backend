@@ -51,8 +51,9 @@ struct ServiceAuthResponse {
 pub async fn get_service_auth_api(
     req: Json<ServiceAuthApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Service auth request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Service auth request received", did);
     let response = pdsmigration_common::get_service_auth_api(req.into()).await?;
     let response = ServiceAuthResponse { token: response };
     Ok(HttpResponse::Ok().json(response))

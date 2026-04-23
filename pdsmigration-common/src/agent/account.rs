@@ -11,6 +11,7 @@ pub async fn create_account(
     pds_host: &str,
     account_request: &CreateAccountRequest,
 ) -> Result<(), MigrationError> {
+    let did_str = account_request.did.as_str();
     let client = reqwest::Client::new();
     let request_body = serde_json::to_string(&CreateAccountInput {
         data: CreateAccountInputData {
@@ -28,7 +29,8 @@ pub async fn create_account(
     })
     .map_err(|error| {
         tracing::error!(
-            "Failed to create account - Error mapping input data to JSON: {:?}",
+            "[{}] Failed to create account - Error mapping input data to JSON: {:?}",
+            did_str,
             error
         );
         MigrationError::Runtime {
@@ -48,12 +50,12 @@ pub async fn create_account(
     match result {
         Ok(output) => match output.status() {
             reqwest::StatusCode::OK => {
-                tracing::info!("Successfully created account");
+                tracing::info!("[{}] Successfully created account", did_str);
             }
             reqwest::StatusCode::BAD_REQUEST => {
                 let error_message = try_parse_error_response(output).await;
 
-                tracing::error!("Failed to create account - Bad Request: {}", error_message);
+                tracing::error!("[{}] Failed to create account - Bad Request: {}", did_str, error_message);
                 return Err(MigrationError::Upstream {
                     message: error_message,
                 });
@@ -65,7 +67,8 @@ pub async fn create_account(
                     .await
                     .unwrap_or_else(|_| "Unable to read response".to_string());
                 tracing::error!(
-                    "Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    "[{}] Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    did_str,
                     status,
                     response_text
                 );
@@ -88,6 +91,7 @@ pub async fn create_account_without_pds(
     pds_host: &str,
     account_request: &CreateAccountWithoutPDSRequest,
 ) -> Result<(), MigrationError> {
+    let did_str = account_request.did.as_str();
     let client = reqwest::Client::new();
     let x = serde_json::to_string(&CreateAccountInput {
         data: CreateAccountInputData {
@@ -115,12 +119,12 @@ pub async fn create_account_without_pds(
     match result {
         Ok(output) => match output.status() {
             reqwest::StatusCode::OK => {
-                tracing::info!("Successfully created account");
+                tracing::info!("[{}] Successfully created account", did_str);
             }
             reqwest::StatusCode::BAD_REQUEST => {
                 let error_message = try_parse_error_response(output).await;
 
-                tracing::error!("Failed to create account - Bad Request: {}", error_message);
+                tracing::error!("[{}] Failed to create account - Bad Request: {}", did_str, error_message);
                 return Err(MigrationError::Upstream {
                     message: error_message,
                 });
@@ -132,7 +136,8 @@ pub async fn create_account_without_pds(
                     .await
                     .unwrap_or_else(|_| "Unable to read response".to_string());
                 tracing::error!(
-                    "Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    "[{}] Failed to create account - Received non-OK status on Create Account: {} - Response: {}",
+                    did_str,
                     status,
                     response_text
                 );
@@ -142,7 +147,7 @@ pub async fn create_account_without_pds(
             }
         },
         Err(e) => {
-            tracing::error!("Failed to create account - Error sending request: {:?}", e);
+            tracing::error!("[{}] Failed to create account - Error sending request: {:?}", did_str, e);
             return Err(MigrationError::Runtime {
                 message: e.to_string(),
             });
@@ -153,6 +158,8 @@ pub async fn create_account_without_pds(
 
 #[tracing::instrument(skip(agent))]
 pub async fn deactivate_account(agent: &BskyAgent) -> Result<(), MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     agent
         .api
         .com
@@ -164,7 +171,7 @@ pub async fn deactivate_account(agent: &BskyAgent) -> Result<(), MigrationError>
         })
         .await
         .map_err(|error| {
-            tracing::error!("Failed to deactivate account: {:?}", error);
+            tracing::error!("[{}] Failed to deactivate account: {:?}", did_str, error);
             MigrationError::Runtime {
                 message: error.to_string(),
             }

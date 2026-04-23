@@ -309,6 +309,7 @@ async fn export_blobs_api_job(
         }
     };
     path.push(session.did.as_str().replace(":", "-"));
+    let did = session.did.as_str();
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
             if e.kind() != ErrorKind::NotFound {
@@ -317,11 +318,11 @@ async fn export_blobs_api_job(
                 });
             }
         }
-        tracing::info!("Cleaned directory for missing blob request");
+        tracing::info!("[{}] Cleaned directory for missing blob request", did);
     }
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {
-            tracing::info!("Successfully created directory");
+            tracing::info!("[{}] Successfully created directory", did);
         }
         Err(e) => {
             if e.kind() != ErrorKind::AlreadyExists {
@@ -332,7 +333,7 @@ async fn export_blobs_api_job(
         }
     }
     for missing_blob in &missing_blobs {
-        tracing::debug!("Missing blob: {:?}", missing_blob);
+        tracing::debug!("[{}] Missing blob: {:?}", did, missing_blob);
         let session = match agent.get_session().await {
             Some(session) => session,
             None => {
@@ -373,7 +374,7 @@ async fn export_blobs_api_job(
             };
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
-                    tracing::info!("Successfully fetched missing blob");
+                    tracing::info!("[{}] Successfully fetched missing blob", did);
                     let mut path = std::env::current_dir().unwrap();
                     path.push(session.did.as_str().replace(":", "-"));
                     path.push(&blob_cid_str);
@@ -420,6 +421,7 @@ async fn upload_blobs_api_job(
         req.token.as_str(),
     )
     .await?;
+    let did = session.did.as_str();
 
     let mut blob_dir;
     let mut path = std::env::current_dir().unwrap();
@@ -427,7 +429,7 @@ async fn upload_blobs_api_job(
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {
-            tracing::error!("{}", error.to_string());
+            tracing::error!("[{}] {}", did, error.to_string());
             return Err(MigrationError::Runtime {
                 message: "Failed to read blob directory".to_string(),
             });
@@ -445,15 +447,17 @@ async fn upload_blobs_api_job(
     }
 
     // process blobs in parallel
+    let did_owned = did.to_string();
     futures_util::stream::iter(blobs_in_dir.into_iter())
         .map(|blob| {
             let agent = agent.clone();
             let state = state.clone();
+            let did_inner = did_owned.clone();
             async move {
                 let file = match tokio::fs::read(blob.path()).await {
                     Ok(data) => data,
                     Err(error) => {
-                        tracing::error!("{}", error.to_string());
+                        tracing::error!("[{}] {}", did_inner, error.to_string());
                         let blob_cid_str = blob.file_name().to_string_lossy().to_string();
                         let mut st = state.write().await;
                         st.record_failure(id, blob_cid_str);
@@ -462,7 +466,8 @@ async fn upload_blobs_api_job(
                 };
                 let blob_cid_str = blob.file_name().to_string_lossy().to_string();
                 tracing::info!(
-                    "Uploading blob: {:?} with size {}...",
+                    "[{}] Uploading blob: {:?} with size {}...",
+                    did_inner,
                     blob_cid_str,
                     file.len()
                 );
@@ -483,7 +488,7 @@ async fn upload_blobs_api_job(
         .collect::<Vec<_>>()
         .await;
 
-    tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
+    tracing::info!("[{}] Finished uploading blobs", did);
     Ok(())
 }
 

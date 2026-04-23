@@ -49,8 +49,9 @@ impl From<MigratePreferencesApiRequest> for MigratePreferencesRequest {
 pub async fn migrate_preferences_api(
     req: Json<MigratePreferencesApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Migrate preferences request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Migrate preferences request received", did);
     pdsmigration_common::migrate_preferences_api(req.into()).await?;
     Ok(HttpResponse::Ok().finish())
 }

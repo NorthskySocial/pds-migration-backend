@@ -77,10 +77,11 @@ impl fmt::Debug for CreateAccountApiRequest {
 pub async fn create_account_api(
     req: Json<CreateAccountApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    tracing::info!("Create account request received");
     let req = req.into_inner();
+    let did = req.did.clone();
+    tracing::info!("[{}] Create account request received", did);
 
-    let did = req.did.parse().map_err(|_error| ApiError::Validation {
+    let did_parsed = req.did.parse().map_err(|_error| ApiError::Validation {
         field: "did".to_string(),
     })?;
 
@@ -91,7 +92,7 @@ pub async fn create_account_api(
     create_account(
         req.pds_host.as_str(),
         &CreateAccountRequest {
-            did,
+            did: did_parsed,
             email: Some(req.email.clone()),
             handle,
             invite_code: Some(req.invite_code.trim().to_string()),
@@ -107,7 +108,8 @@ pub async fn create_account_api(
     .map_err(ApiError::from)?;
 
     tracing::info!(
-        "Account created successfully - Used invite code {}",
+        "[{}] Account created successfully - Used invite code {}",
+        did,
         req.invite_code
     );
     Ok(HttpResponse::Ok().finish())

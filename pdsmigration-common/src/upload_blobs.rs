@@ -33,13 +33,14 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
     )
     .await?;
 
+    let did = session.did.as_str();
     let mut blob_dir;
     let mut path = std::env::current_dir().unwrap();
-    path.push(session.did.as_str().replace(":", "-"));
+    path.push(did.replace(":", "-"));
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {
-            tracing::error!("{}", error.to_string());
+            tracing::error!("[{}] {}", did, error.to_string());
             return Err(MigrationError::Runtime {
                 message: "Failed to read blob directory".to_string(),
             });
@@ -47,25 +48,26 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
     }
 
     while let Some(blob) = blob_dir.next_entry().await.map_err(|error| {
-        tracing::error!("{}", error.to_string());
+        tracing::error!("[{}] {}", did, error.to_string());
         MigrationError::Runtime {
             message: "Failed to get next blob".to_string(),
         }
     })? {
         let file = tokio::fs::read(blob.path()).await.map_err(|error| {
-            tracing::error!("{}", error.to_string());
+            tracing::error!("[{}] {}", did, error.to_string());
             MigrationError::Runtime {
                 message: "Failed to read next blob".to_string(),
             }
         })?;
         tracing::debug!(
-            "Uploading blob: {:?} with size {}...",
+            "[{}] Uploading blob: {:?} with size {}...",
+            did,
             blob.file_name(),
             file.len()
         );
         upload_blob(&agent, file).await?;
     }
 
-    tracing::info!("Finished uploading blobs for DID {}", session.did.as_str());
+    tracing::info!("[{}] Finished uploading blobs", did);
     Ok(())
 }

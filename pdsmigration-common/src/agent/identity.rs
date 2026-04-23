@@ -12,6 +12,8 @@ use ipld_core::ipld::Ipld;
 pub async fn recommended_plc(
     agent: &BskyAgent,
 ) -> Result<RecommendedDidOutputData, MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
@@ -20,7 +22,7 @@ pub async fn recommended_plc(
         .get_recommended_did_credentials()
         .await
         .map_err(|error| {
-            tracing::error!("Failed to get recommended did: {:?}", error);
+            tracing::error!("[{}] Failed to get recommended did: {:?}", did_str, error);
             MigrationError::Runtime {
                 message: error.to_string(),
             }
@@ -33,6 +35,8 @@ pub async fn sign_plc(
     agent: &BskyAgent,
     plc_input_data: InputData,
 ) -> Result<Unknown, MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
@@ -46,7 +50,7 @@ pub async fn sign_plc(
     match result {
         Ok(output) => Ok(output.operation.clone()),
         Err(e) => {
-            tracing::error!("Failed to sign plc: {:?}", e);
+            tracing::error!("[{}] Failed to sign plc: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: e.to_string(),
             })
@@ -56,6 +60,8 @@ pub async fn sign_plc(
 
 #[tracing::instrument(skip(agent))]
 pub async fn submit_plc(agent: &BskyAgent, signed_plc: Unknown) -> Result<(), MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
@@ -71,7 +77,7 @@ pub async fn submit_plc(agent: &BskyAgent, signed_plc: Unknown) -> Result<(), Mi
     match result {
         Ok(res) => Ok(res),
         Err(e) => {
-            tracing::error!("Failed to submit plc: {:?}", e);
+            tracing::error!("[{}] Failed to submit plc: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: e.to_string(),
             })
@@ -81,6 +87,8 @@ pub async fn submit_plc(agent: &BskyAgent, signed_plc: Unknown) -> Result<(), Mi
 
 #[tracing::instrument(skip(agent))]
 pub async fn request_token(agent: &BskyAgent) -> Result<(), MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
@@ -91,7 +99,7 @@ pub async fn request_token(agent: &BskyAgent) -> Result<(), MigrationError> {
     match result {
         Ok(_) => Ok(()),
         Err(e) => {
-            tracing::error!("Failed to request token: {:?}", e);
+            tracing::error!("[{}] Failed to request token: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: e.to_string(),
             })
