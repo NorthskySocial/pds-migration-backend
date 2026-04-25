@@ -45,7 +45,7 @@ pub async fn deactivate_account_api(
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
-    tracing::info!("[{}] Deactivate account request received", did);
+    tracing::info!("[{}] Deactivate origin account request received", did);
     pdsmigration_common::deactivate_account_api(req.into()).await?;
     Ok(HttpResponse::Ok().finish())
 }
