@@ -477,7 +477,13 @@ async fn upload_blobs_api_job(
                         st.record_success(id, blob_cid_str.clone());
                     }
                     Err(e) => {
-                        handle_rate_limit_error(&e, &blob_cid_str, &did_inner, JobKind::UploadBlobs).await;
+                        handle_rate_limit_error(
+                            &e,
+                            &blob_cid_str,
+                            &did_inner,
+                            JobKind::UploadBlobs,
+                        )
+                        .await;
                         let mut st = state.write().await;
                         st.record_failure(id, blob_cid_str.clone());
                     }
@@ -492,10 +498,19 @@ async fn upload_blobs_api_job(
     Ok(())
 }
 
-async fn handle_rate_limit_error(error: &MigrationError, blob_id: &str, did: &str, operation: JobKind) {
+async fn handle_rate_limit_error(
+    error: &MigrationError,
+    blob_id: &str,
+    did: &str,
+    operation: JobKind,
+) {
     match error {
         MigrationError::RateLimitReached => {
-            tracing::error!("[{}][{}] Rate limit reached, waiting 5 minutes", did, operation);
+            tracing::error!(
+                "[{}][{}] Rate limit reached, waiting 5 minutes",
+                did,
+                operation
+            );
             let five_minutes = Duration::from_secs(300);
             tokio::time::sleep(five_minutes).await;
         }

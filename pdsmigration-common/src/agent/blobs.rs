@@ -123,7 +123,11 @@ pub async fn upload_blob(agent: &BskyAgent, input: Vec<u8>) -> Result<(), Migrat
 }
 
 #[tracing::instrument(skip(agent, input))]
-pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>, blob_id: &str) -> Result<(), MigrationError> {
+pub async fn upload_blob_v2(
+    agent: &BskyAgent,
+    input: Vec<u8>,
+    blob_id: &str,
+) -> Result<(), MigrationError> {
     let pds_host = agent.get_endpoint().await;
     let session = agent
         .get_session()
@@ -177,14 +181,29 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>, blob_id: &str) ->
                         blob_id,
                         output
                     );
-                    tracing::error!("[{}] Response body for blob {}: {:?}", did_str, blob_id, output.text().await);
+                    tracing::error!(
+                        "[{}] Response body for blob {}: {:?}",
+                        did_str,
+                        blob_id,
+                        output.text().await
+                    );
                     Err(MigrationError::Upstream {
                         message: "BadRequest uploading blob".to_string(),
                     })
                 }
                 _ => {
-                    tracing::error!("[{}] Runtime Error uploading blob {}: {:?}", did_str, blob_id, output);
-                    tracing::error!("[{}] Response body for blob {}: {:?}", did_str, blob_id, output.text().await);
+                    tracing::error!(
+                        "[{}] Runtime Error uploading blob {}: {:?}",
+                        did_str,
+                        blob_id,
+                        output
+                    );
+                    tracing::error!(
+                        "[{}] Response body for blob {}: {:?}",
+                        did_str,
+                        blob_id,
+                        output.text().await
+                    );
                     Err(MigrationError::Upstream {
                         message: "Runtime Error uploading blob".to_string(),
                     })
@@ -192,7 +211,12 @@ pub async fn upload_blob_v2(agent: &BskyAgent, input: Vec<u8>, blob_id: &str) ->
             }
         }
         Err(e) => {
-            tracing::error!("[{}] Unexpected Error uploading blob {}: {:?}", did_str, blob_id, e);
+            tracing::error!(
+                "[{}] Unexpected Error uploading blob {}: {:?}",
+                did_str,
+                blob_id,
+                e
+            );
             Err(MigrationError::Runtime {
                 message: "Unexpected Error uploading blob".to_string(),
             })
