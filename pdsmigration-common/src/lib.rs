@@ -73,11 +73,6 @@ pub fn public_key_to_did_key(public_key: PublicKey) -> String {
     public_key_str
 }
 
-/// Convert a DID into the directory / file basename used on disk.
-pub fn did_to_dirname<D: AsRef<str>>(did: D) -> String {
-    did.as_ref().replace(':', "-")
-}
-
 /// Convert a DID into a canonical CAR filename for repository
 /// exports / imports (`<did-with-colons-replaced>.car`).
 pub fn did_to_car_filename<D: AsRef<str>>(did: D) -> String {
@@ -94,6 +89,21 @@ pub fn format_cid<T: std::fmt::Debug>(cid: &T) -> String {
         .and_then(|s| s.strip_suffix("))"))
         .map(str::to_string)
         .unwrap_or(raw)
+}
+
+/// Build the canonical on-disk directory path for a DID's blobs:
+/// `<current_dir>/<did-with-colons-replaced>`.
+pub fn did_blobs_path<D: AsRef<str>>(did: D) -> Result<std::path::PathBuf, MigrationError> {
+    let mut path = std::env::current_dir().map_err(|e| MigrationError::Runtime {
+        message: e.to_string(),
+    })?;
+    path.push(did_to_dirname(did));
+    Ok(path)
+}
+
+/// Convert a DID into the directory / file basename used on disk.
+fn did_to_dirname<D: AsRef<str>>(did: D) -> String {
+    did.as_ref().replace(':', "-")
 }
 
 #[cfg(test)]
@@ -160,5 +170,20 @@ mod tests {
     fn format_cid_returns_raw_when_unwrapping_fails() {
         let value = "not-a-cid";
         assert_eq!(format_cid(&value), format!("{value:?}"));
+    }
+
+    #[test]
+    fn did_blob_dir_appends_dirname_to_cwd() {
+        let cwd = std::env::current_dir().expect("cwd should be readable in tests");
+        let path = did_blobs_path("did:plc:abc123").expect("cwd should be readable in tests");
+        assert_eq!(path, cwd.join("did-plc-abc123"));
+    }
+
+    #[test]
+    fn did_blob_dir_accepts_did_type() {
+        let cwd = std::env::current_dir().expect("cwd should be readable in tests");
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        let path = did_blobs_path(&did).expect("cwd should be readable in tests");
+        assert_eq!(path, cwd.join("did-plc-abc123"));
     }
 }

@@ -1,6 +1,6 @@
 use crate::agent::{download_blob, login_helper, missing_blobs};
 use crate::export_all_blobs::GetBlobRequest;
-use crate::{build_agent, did_to_dirname, format_cid, MigrationError};
+use crate::{build_agent, did_blobs_path, format_cid, MigrationError};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
@@ -61,15 +61,7 @@ pub async fn export_blobs_api(
     // Initialize collections to track successful and failed blob IDs
     let mut successful_blobs = Vec::new();
     let mut invalid_blobs = Vec::new();
-    let mut path = match std::env::current_dir() {
-        Ok(path) => path,
-        Err(e) => {
-            return Err(MigrationError::Runtime {
-                message: e.to_string(),
-            })
-        }
-    };
-    path.push(did_to_dirname(did));
+    let path = did_blobs_path(did)?;
 
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
@@ -104,15 +96,7 @@ pub async fn export_blobs_api(
                 });
             }
         };
-        let mut filepath = match std::env::current_dir() {
-            Ok(res) => res,
-            Err(e) => {
-                return Err(MigrationError::Runtime {
-                    message: e.to_string(),
-                });
-            }
-        };
-        filepath.push(did_to_dirname(&session.did));
+        let mut filepath = did_blobs_path(&session.did)?;
         filepath.push(
             missing_blob
                 .record_uri
@@ -131,8 +115,7 @@ pub async fn export_blobs_api(
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
-                    let mut path = std::env::current_dir().unwrap();
-                    path.push(did_to_dirname(&session.did));
+                    let mut path = did_blobs_path(&session.did)?;
                     path.push(&blob_cid_str);
                     let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
 

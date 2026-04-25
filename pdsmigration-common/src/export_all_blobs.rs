@@ -1,5 +1,5 @@
 use crate::agent::{download_blob, list_all_blobs, login_helper};
-use crate::{build_agent, did_to_dirname, format_cid, MigrationError};
+use crate::{build_agent, did_blobs_path, format_cid, MigrationError};
 use bsky_sdk::api::types::string::Did;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -63,8 +63,7 @@ pub async fn export_all_blobs_api(
     let did = session.did.as_str();
     tracing::info!("[{}] Starting export of all blobs from {}", did, req.origin);
     let blobs = list_all_blobs(&agent).await?;
-    let mut path = std::env::current_dir().unwrap();
-    path.push(did_to_dirname(did));
+    let path = did_blobs_path(did)?;
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {}
         Err(e) => {
@@ -82,8 +81,7 @@ pub async fn export_all_blobs_api(
     for blob in &blobs {
         let session = agent.get_session().await.unwrap();
         let blob_cid_str = format_cid(blob);
-        let mut filepath = std::env::current_dir().unwrap();
-        filepath.push(did_to_dirname(&session.did));
+        let mut filepath = did_blobs_path(&session.did)?;
         filepath.push(&blob_cid_str);
         if !tokio::fs::try_exists(filepath).await.unwrap() {
             let get_blob_request = GetBlobRequest {
@@ -94,8 +92,7 @@ pub async fn export_all_blobs_api(
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
-                    let mut path = std::env::current_dir().unwrap();
-                    path.push(did_to_dirname(&session.did));
+                    let mut path = did_blobs_path(&session.did)?;
                     path.push(&blob_cid_str);
                     let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
 
