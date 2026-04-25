@@ -68,12 +68,19 @@ pub async fn download_repo(
 pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), MigrationError> {
     let did = agent.did().await.clone();
     let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
+    let repo_bytes = tokio::fs::read(filepath).await.unwrap();
+    tracing::info!(
+        "[{}] Importing repo file {} ({} bytes)",
+        did_str,
+        filepath,
+        repo_bytes.len()
+    );
     agent
         .api
         .com
         .atproto
         .repo
-        .import_repo(tokio::fs::read(filepath).await.unwrap())
+        .import_repo(repo_bytes)
         .await
         .map_err(|error| {
             tracing::error!("[{}] Failed to import account: {:?}", did_str, error);
@@ -81,6 +88,7 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
                 message: error.to_string(),
             }
         })?;
+    tracing::info!("[{}] Successfully imported repo from {}", did_str, filepath);
     Ok(())
 }
 

@@ -39,18 +39,22 @@ pub async fn list_all_blobs(agent: &BskyAgent) -> Result<Vec<Cid>, MigrationErro
                 result.append(blob_cids.as_mut());
             }
             Err(e) => {
-                tracing::error!("[{}] {:?}", did_str, e);
+                tracing::error!("[{}] list_blobs failed: {:?}", did_str, e);
                 return Err(MigrationError::Upstream {
                     message: e.to_string(),
                 });
             }
         }
     }
+    tracing::info!("[{}] Retrieved {} blobs total", did_str, result.len());
     Ok(result)
 }
 
 #[tracing::instrument(skip(agent))]
 pub async fn missing_blobs(agent: &BskyAgent) -> Result<Vec<RecordBlob>, MigrationError> {
+    let did = agent.did().await;
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
+    tracing::info!("[{}] Fetching missing blobs", did_str);
     let mut result: Vec<RecordBlob> = vec![];
     let mut length = None;
     let mut cursor = None;
@@ -68,14 +72,18 @@ pub async fn missing_blobs(agent: &BskyAgent) -> Result<Vec<RecordBlob>, Migrati
                 extra_data: Ipld::Null,
             })
             .await
-            .map_err(|error| MigrationError::Upstream {
-                message: error.to_string(),
+            .map_err(|error| {
+                tracing::error!("[{}] list_missing_blobs failed: {:?}", did_str, error);
+                MigrationError::Upstream {
+                    message: error.to_string(),
+                }
             })?;
         length = Some(output.blobs.len());
         let mut temp = output.blobs.clone();
         result.append(temp.as_mut());
         cursor = output.cursor.clone();
     }
+    tracing::info!("[{}] Found {} missing blobs", did_str, result.len());
     Ok(result)
 }
 

@@ -61,6 +61,7 @@ pub async fn export_all_blobs_api(
     )
     .await?;
     let did = session.did.as_str();
+    tracing::info!("[{}] Starting export of all blobs from {}", did, req.origin);
     let blobs = list_all_blobs(&agent).await?;
     let mut path = std::env::current_dir().unwrap();
     path.push(did.replace(":", "-"));

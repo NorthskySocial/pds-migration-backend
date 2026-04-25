@@ -206,6 +206,15 @@ impl JobManager {
         concurrent_tasks: usize,
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
+        let did = request.did.clone();
+        let pds_host = request.pds_host.clone();
+        tracing::info!(
+            "[{}] Spawning upload_blobs job {} for {} (concurrency={})",
+            did,
+            id,
+            pds_host,
+            concurrent_tasks
+        );
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
         {
@@ -238,6 +247,9 @@ impl JobManager {
     #[tracing::instrument(skip(self))]
     pub async fn spawn_export_blobs(&self, request: ExportBlobsRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
+        let did = request.did.clone();
+        let origin = request.origin.clone();
+        tracing::info!("[{}] Spawning export_blobs job {} from {}", did, id, origin);
         let rec = JobRecord::new(id, JobKind::ExportBlobs);
 
         {

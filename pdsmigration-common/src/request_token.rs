@@ -11,6 +11,12 @@ pub struct RequestTokenRequest {
 
 #[tracing::instrument(skip(req))]
 pub async fn request_token_api(req: RequestTokenRequest) -> Result<(), MigrationError> {
+    let did = req.did.as_str();
+    tracing::info!(
+        "[{}] Requesting PLC operation signature token from {}",
+        did,
+        req.pds_host
+    );
     let agent = build_agent().await?;
     login_helper(
         &agent,
@@ -20,5 +26,9 @@ pub async fn request_token_api(req: RequestTokenRequest) -> Result<(), Migration
     )
     .await?;
     request_token(&agent).await?;
+    tracing::info!(
+        "[{}] Successfully requested PLC operation signature token",
+        did
+    );
     Ok(())
 }

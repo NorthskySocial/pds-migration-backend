@@ -168,6 +168,12 @@ pub async fn export_blobs_api(
                     invalid_blobs.push(blob_cid_str);
                 }
             }
+        } else {
+            tracing::debug!(
+                "[{}] Missing blob target file already exists, skipping: {}",
+                did,
+                filepath.display()
+            );
         }
     }
     Ok(ExportBlobsResponse {
