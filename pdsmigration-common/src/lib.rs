@@ -72,3 +72,93 @@ pub fn public_key_to_did_key(public_key: PublicKey) -> String {
     let public_key_str = format!("did:key:{pk_multibase}");
     public_key_str
 }
+
+/// Convert a DID into the directory / file basename used on disk.
+pub fn did_to_dirname<D: AsRef<str>>(did: D) -> String {
+    did.as_ref().replace(':', "-")
+}
+
+/// Convert a DID into a canonical CAR filename for repository
+/// exports / imports (`<did-with-colons-replaced>.car`).
+pub fn did_to_car_filename<D: AsRef<str>>(did: D) -> String {
+    let mut name = did_to_dirname(did);
+    name.push_str(".car");
+    name
+}
+
+/// Normalize a CID representation Cid(Cid(<inner>)) into
+/// its inner ID as a string.
+pub fn format_cid<T: std::fmt::Debug>(cid: &T) -> String {
+    let raw = format!("{cid:?}");
+    raw.strip_prefix("Cid(Cid(")
+        .and_then(|s| s.strip_suffix("))"))
+        .map(str::to_string)
+        .unwrap_or(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bsky_sdk::api::types::string::{Cid, Did};
+    use std::str::FromStr;
+
+    #[test]
+    fn dirname_replaces_colons() {
+        assert_eq!(
+            did_to_dirname("did:plc:abc123"),
+            "did-plc-abc123".to_string()
+        );
+    }
+
+    #[test]
+    fn dirname_accepts_did_type() {
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        assert_eq!(did_to_dirname(&did), "did-plc-abc123".to_string());
+    }
+
+    #[test]
+    fn dirname_passthrough_when_no_colon() {
+        assert_eq!(did_to_dirname("plain"), "plain".to_string());
+    }
+
+    #[test]
+    fn dirname_handles_empty_string() {
+        assert_eq!(did_to_dirname(""), "".to_string());
+    }
+
+    #[test]
+    fn car_filename_appends_extension() {
+        assert_eq!(
+            did_to_car_filename("did:plc:abc123"),
+            "did-plc-abc123.car".to_string()
+        );
+    }
+
+    #[test]
+    fn car_filename_for_web_did() {
+        assert_eq!(
+            did_to_car_filename("did:web:example.com"),
+            "did-web-example.com.car".to_string()
+        );
+    }
+
+    #[test]
+    fn car_filename_accepts_did_type() {
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        assert_eq!(did_to_car_filename(&did), "did-plc-abc123.car".to_string());
+    }
+
+    #[test]
+    fn format_cid_strips_double_wrapping() {
+        let raw = "bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy";
+        let cid = Cid::from_str(raw).expect("valid test CID");
+        assert_eq!(format!("{cid:?}"), format!("Cid(Cid({raw}))"));
+        assert_eq!(format_cid(&cid), raw.to_string());
+    }
+
+    #[test]
+    fn format_cid_returns_raw_when_unwrapping_fails() {
+        let value = "not-a-cid";
+        assert_eq!(format_cid(&value), format!("{value:?}"));
+    }
+}

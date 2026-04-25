@@ -1,5 +1,5 @@
 use crate::agent::{download_repo, login_helper};
-use crate::{build_agent, GetRepoRequest, MigrationError};
+use crate::{build_agent, did_to_car_filename, GetRepoRequest, MigrationError};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -45,7 +45,7 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                     message: "Failed to get current directory".to_string(),
                 }
             })?;
-            path.push(session.did.clone().replace(":", "-") + ".car");
+            path.push(did_to_car_filename(&session.did));
 
             let mut file = tokio::fs::File::create(path.as_path())
                 .await

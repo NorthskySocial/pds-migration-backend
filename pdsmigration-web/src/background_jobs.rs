@@ -3,8 +3,8 @@ use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
-    build_agent, download_blob, login_helper, missing_blobs, upload_blob_v2, ExportBlobsRequest,
-    GetBlobRequest, MigrationError, UploadBlobsRequest,
+    build_agent, did_to_dirname, download_blob, format_cid, login_helper, missing_blobs,
+    upload_blob_v2, ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -320,7 +320,7 @@ async fn export_blobs_api_job(
             })
         }
     };
-    path.push(session.did.as_str().replace(":", "-"));
+    path.push(did_to_dirname(&session.did));
     let did = session.did.as_str();
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
@@ -362,7 +362,7 @@ async fn export_blobs_api_job(
                 });
             }
         };
-        filepath.push(session.did.as_str().replace(":", "-"));
+        filepath.push(did_to_dirname(&session.did));
         filepath.push(
             missing_blob
                 .record_uri
@@ -372,13 +372,7 @@ async fn export_blobs_api_job(
                 .unwrap_or("fallback"),
         );
         if !tokio::fs::try_exists(filepath).await.unwrap() {
-            let missing_blob_cid = missing_blob.cid.clone();
-            let blob_cid_str = format!("{missing_blob_cid:?}")
-                .strip_prefix("Cid(Cid(")
-                .unwrap()
-                .strip_suffix("))")
-                .unwrap()
-                .to_string();
+            let blob_cid_str = format_cid(&missing_blob.cid);
             let get_blob_request = GetBlobRequest {
                 did: session.did.clone(),
                 cid: blob_cid_str.clone(),
@@ -388,7 +382,7 @@ async fn export_blobs_api_job(
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
                     let mut path = std::env::current_dir().unwrap();
-                    path.push(session.did.as_str().replace(":", "-"));
+                    path.push(did_to_dirname(&session.did));
                     path.push(&blob_cid_str);
                     let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
 
@@ -437,7 +431,7 @@ async fn upload_blobs_api_job(
 
     let mut blob_dir;
     let mut path = std::env::current_dir().unwrap();
-    path.push(session.did.as_str().replace(":", "-"));
+    path.push(did_to_dirname(&session.did));
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {

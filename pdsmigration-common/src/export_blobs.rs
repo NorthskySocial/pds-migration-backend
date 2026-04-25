@@ -1,6 +1,6 @@
 use crate::agent::{download_blob, login_helper, missing_blobs};
 use crate::export_all_blobs::GetBlobRequest;
-use crate::{build_agent, MigrationError};
+use crate::{build_agent, did_to_dirname, format_cid, MigrationError};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
@@ -69,7 +69,7 @@ pub async fn export_blobs_api(
             })
         }
     };
-    path.push(did.replace(":", "-"));
+    path.push(did_to_dirname(did));
 
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
@@ -112,7 +112,7 @@ pub async fn export_blobs_api(
                 });
             }
         };
-        filepath.push(session.did.as_str().replace(":", "-"));
+        filepath.push(did_to_dirname(&session.did));
         filepath.push(
             missing_blob
                 .record_uri
@@ -122,13 +122,7 @@ pub async fn export_blobs_api(
                 .unwrap_or("fallback"),
         );
         if !tokio::fs::try_exists(&filepath).await.unwrap() {
-            let missing_blob_cid = missing_blob.cid.clone();
-            let blob_cid_str = format!("{missing_blob_cid:?}")
-                .strip_prefix("Cid(Cid(")
-                .unwrap()
-                .strip_suffix("))")
-                .unwrap()
-                .to_string();
+            let blob_cid_str = format_cid(&missing_blob.cid);
             let get_blob_request = GetBlobRequest {
                 did: session.did.clone(),
                 cid: blob_cid_str.clone(),
@@ -138,7 +132,7 @@ pub async fn export_blobs_api(
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
                     let mut path = std::env::current_dir().unwrap();
-                    path.push(session.did.as_str().replace(":", "-"));
+                    path.push(did_to_dirname(&session.did));
                     path.push(&blob_cid_str);
                     let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
 
