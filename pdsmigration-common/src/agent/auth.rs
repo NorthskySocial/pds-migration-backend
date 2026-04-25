@@ -72,6 +72,8 @@ pub async fn login_helper(
 
 #[tracing::instrument(skip(agent))]
 pub async fn get_service_auth(agent: &BskyAgent, aud: &str) -> Result<String, MigrationError> {
+    let did = agent.did().await;
+    let did_str = did.as_ref().map(|d: &Did| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
