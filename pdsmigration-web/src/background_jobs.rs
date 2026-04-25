@@ -471,7 +471,7 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                match upload_blob_v2(&agent, file).await {
+                match upload_blob_v2(&agent, file, &blob_cid_str).await {
                     Ok(_) => {
                         let mut st = state.write().await;
                         st.record_success(id, blob_cid_str.clone());
