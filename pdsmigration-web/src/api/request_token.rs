@@ -45,7 +45,7 @@ pub async fn request_token_api(
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
-    tracing::info!("[{}] Request token request received", did);
+    tracing::info!("[{}] Request token for PLC Operation request received", did);
     pdsmigration_common::request_token_api(req.into())
         .await
         .map_err(|e| {

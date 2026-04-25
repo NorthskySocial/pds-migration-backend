@@ -55,7 +55,10 @@ impl From<MigratePlcApiRequest> for MigratePlcRequest {
 pub async fn migrate_plc_api(req: Json<MigratePlcApiRequest>) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
-    tracing::info!("[{}] Migrate PLC request received", did);
+    tracing::info!(
+        "[{}] Migrate PLC from origin to destination request received",
+        did
+    );
     pdsmigration_common::migrate_plc_api(req.into()).await?;
     Ok(HttpResponse::Ok().finish())
 }

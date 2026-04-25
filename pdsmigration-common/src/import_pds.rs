@@ -11,6 +11,8 @@ pub struct ImportPDSRequest {
 
 #[tracing::instrument(skip(req))]
 pub async fn import_pds_api(req: ImportPDSRequest) -> Result<(), MigrationError> {
+    let did = req.did.as_str();
+    tracing::info!("[{}] Starting PDS repo import to {}", did, req.pds_host);
     let agent = build_agent().await?;
     let session = login_helper(
         &agent,
@@ -19,10 +21,9 @@ pub async fn import_pds_api(req: ImportPDSRequest) -> Result<(), MigrationError>
         req.token.as_str(),
     )
     .await?;
-    account_import(
-        &agent,
-        (session.did.as_str().to_string().replace(":", "-") + ".car").as_str(),
-    )
-    .await?;
+    let filename = session.did.as_str().to_string().replace(":", "-") + ".car";
+    tracing::info!("[{}] Importing repo from {}", did, filename);
+    account_import(&agent, filename.as_str()).await?;
+    tracing::info!("[{}] Successfully imported PDS", did);
     Ok(())
 }

@@ -33,9 +33,13 @@ pub async fn enqueue_export_blobs_job_api(
     jobs: web::Data<JobManager>,
     req: Json<ExportBlobsApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Enqueueing export-blobs job", did);
     let id = jobs
-        .spawn_export_blobs(ExportBlobsRequest::from(req.into_inner()))
+        .spawn_export_blobs(ExportBlobsRequest::from(req_inner))
         .await?;
+    tracing::info!("[{}] Enqueued export-blobs job {}", did, id);
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
         job_id: id.to_string(),
     }))
@@ -60,12 +64,16 @@ pub async fn enqueue_upload_blobs_job_api(
     config: web::Data<AppConfig>,
     req: Json<UploadBlobsApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Enqueueing upload-blobs job", did);
     let id = jobs
         .spawn_upload_blobs(
-            UploadBlobsRequest::from(req.into_inner()),
+            UploadBlobsRequest::from(req_inner),
             config.server.concurrent_tasks_per_job,
         )
         .await?;
+    tracing::info!("[{}] Enqueued upload-blobs job {}", did, id);
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
         job_id: id.to_string(),
     }))
@@ -107,7 +115,16 @@ pub async fn cancel_job_api(
     path: web::Path<(Uuid,)>,
 ) -> Result<HttpResponse, ApiError> {
     let id = path.into_inner().0;
+    tracing::info!("Cancelling job {}", id);
     let success = jobs.cancel(id).await;
+    if success {
+        tracing::info!("Cancelled job {}", id);
+    } else {
+        tracing::warn!(
+            "Cancel requested for unknown or already-finished job {}",
+            id
+        );
+    }
     Ok(HttpResponse::Ok().json(CancelJobResponse { success }))
 }
 

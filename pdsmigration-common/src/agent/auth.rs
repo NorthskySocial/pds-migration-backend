@@ -24,6 +24,7 @@ pub async fn login_helper(
     did: &str,
     token: &str,
 ) -> Result<AtpSession, MigrationError> {
+    tracing::info!("[{}] Logging in to {}", did, pds_host);
     agent.configure_endpoint(pds_host.to_string());
     match agent
         .resume_session(AtpSession {
@@ -71,6 +72,8 @@ pub async fn login_helper(
 
 #[tracing::instrument(skip(agent))]
 pub async fn get_service_auth(agent: &BskyAgent, aud: &str) -> Result<String, MigrationError> {
+    let did = agent.did().await;
+    let did_str = did.as_ref().map(|d: &Did| d.as_str()).unwrap_or("unknown");
     let result = agent
         .api
         .com
@@ -87,8 +90,16 @@ pub async fn get_service_auth(agent: &BskyAgent, aud: &str) -> Result<String, Mi
             extra_data: Ipld::Null,
         })
         .await
-        .map_err(|error| MigrationError::Runtime {
-            message: error.to_string(),
+        .map_err(|error| {
+            tracing::error!(
+                "[{}] Failed to get service auth token for {}: {}",
+                did_str,
+                aud,
+                error
+            );
+            MigrationError::Runtime {
+                message: error.to_string(),
+            }
         })?;
     Ok(result.token.clone())
 }

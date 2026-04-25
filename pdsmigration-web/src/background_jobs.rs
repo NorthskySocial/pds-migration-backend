@@ -206,6 +206,15 @@ impl JobManager {
         concurrent_tasks: usize,
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
+        let did = request.did.clone();
+        let pds_host = request.pds_host.clone();
+        tracing::info!(
+            "[{}] Spawning upload_blobs job {} for {} (concurrency={})",
+            did,
+            id,
+            pds_host,
+            concurrent_tasks
+        );
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
         {
@@ -238,6 +247,9 @@ impl JobManager {
     #[tracing::instrument(skip(self))]
     pub async fn spawn_export_blobs(&self, request: ExportBlobsRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
+        let did = request.did.clone();
+        let origin = request.origin.clone();
+        tracing::info!("[{}] Spawning export_blobs job {} from {}", did, id, origin);
         let rec = JobRecord::new(id, JobKind::ExportBlobs);
 
         {
@@ -393,7 +405,7 @@ async fn export_blobs_api_job(
                     }
                 }
                 Err(e) => {
-                    handle_rate_limit_error(&e, &blob_cid_str, JobKind::ExportBlobs).await;
+                    handle_rate_limit_error(&e, &blob_cid_str, did, JobKind::ExportBlobs).await;
                     {
                         let mut st = state.write().await;
                         st.record_failure(id, blob_cid_str.clone());
@@ -471,13 +483,19 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                match upload_blob_v2(&agent, file).await {
+                match upload_blob_v2(&agent, file, &blob_cid_str).await {
                     Ok(_) => {
                         let mut st = state.write().await;
                         st.record_success(id, blob_cid_str.clone());
                     }
                     Err(e) => {
-                        handle_rate_limit_error(&e, &blob_cid_str, JobKind::UploadBlobs).await;
+                        handle_rate_limit_error(
+                            &e,
+                            &blob_cid_str,
+                            &did_inner,
+                            JobKind::UploadBlobs,
+                        )
+                        .await;
                         let mut st = state.write().await;
                         st.record_failure(id, blob_cid_str.clone());
                     }
@@ -492,23 +510,34 @@ async fn upload_blobs_api_job(
     Ok(())
 }
 
-async fn handle_rate_limit_error(error: &MigrationError, blob_id: &str, operation: JobKind) {
+async fn handle_rate_limit_error(
+    error: &MigrationError,
+    blob_id: &str,
+    did: &str,
+    operation: JobKind,
+) {
     match error {
         MigrationError::RateLimitReached => {
-            tracing::error!("[{}] Rate limit reached, waiting 5 minutes", operation);
+            tracing::error!(
+                "[{}][{}] Rate limit reached, waiting 5 minutes",
+                did,
+                operation
+            );
             let five_minutes = Duration::from_secs(300);
             tokio::time::sleep(five_minutes).await;
         }
         _ => {
             tracing::error!(
-                "[{}] Unexpected error when processing blob: {}",
+                "[{}][{}] Unexpected error when processing blob: {}",
+                did,
                 operation,
                 error.to_string()
             );
         }
     }
     tracing::error!(
-        "[{}] Failed to process blob {} with error: {}",
+        "[{}][{}] Failed to process blob {} with error: {}",
+        did,
         operation,
         blob_id,
         error

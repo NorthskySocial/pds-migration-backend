@@ -18,6 +18,8 @@ pub struct MissingBlobsResponse {
 pub async fn missing_blobs_api(
     req: MissingBlobsRequest,
 ) -> Result<MissingBlobsResponse, MigrationError> {
+    let did = req.did.as_str();
+    tracing::info!("[{}] Listing missing blobs on {}", did, req.pds_host);
     let agent = build_agent().await?;
     login_helper(
         &agent,
@@ -31,6 +33,11 @@ pub async fn missing_blobs_api(
     for blob in &initial_missing_blobs {
         missing_blob_cids.push(format!("{:?}", blob.cid));
     }
+    tracing::info!(
+        "[{}] Returning {} missing blob ids",
+        did,
+        missing_blob_cids.len()
+    );
     Ok(MissingBlobsResponse {
         missing_blobs: missing_blob_cids,
     })

@@ -121,7 +121,7 @@ pub async fn export_blobs_api(
                 .last()
                 .unwrap_or("fallback"),
         );
-        if !tokio::fs::try_exists(filepath).await.unwrap() {
+        if !tokio::fs::try_exists(&filepath).await.unwrap() {
             let missing_blob_cid = missing_blob.cid.clone();
             let blob_cid_str = format!("{missing_blob_cid:?}")
                 .strip_prefix("Cid(Cid(")
@@ -168,6 +168,12 @@ pub async fn export_blobs_api(
                     invalid_blobs.push(blob_cid_str);
                 }
             }
+        } else {
+            tracing::debug!(
+                "[{}] Missing blob target file already exists, skipping: {}",
+                did,
+                filepath.display()
+            );
         }
     }
     Ok(ExportBlobsResponse {
