@@ -1,5 +1,5 @@
 use crate::agent::{login_helper, upload_blob};
-use crate::{build_agent, MigrationError};
+use crate::{build_agent, did_blobs_path, MigrationError};
 use bsky_sdk::api::agent::Configure;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -35,8 +35,7 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
 
     let did = session.did.as_str();
     let mut blob_dir;
-    let mut path = std::env::current_dir().unwrap();
-    path.push(did.replace(":", "-"));
+    let path = did_blobs_path(did)?;
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {

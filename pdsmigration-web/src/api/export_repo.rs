@@ -2,7 +2,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::ExportPDSRequest;
+use pdsmigration_common::{did_to_car_filename, ExportPDSRequest};
 use serde::{Deserialize, Serialize};
 use std::env;
 use utoipa::ToSchema;
@@ -79,8 +79,8 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     let client = aws_sdk_s3::Client::new(&config);
 
     let bucket_name = "migration".to_string();
-    let file_name = did.replace(":", "-") + ".car";
-    let key = "migration/".to_string() + &did.replace(":", "-") + ".car";
+    let file_name = did_to_car_filename(&did);
+    let key = format!("migration/{file_name}");
 
     tracing::debug!(
         "[{}] Uploading file {} to S3 bucket {} with key {}",

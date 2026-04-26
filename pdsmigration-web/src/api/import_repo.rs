@@ -3,7 +3,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
-use pdsmigration_common::ImportPDSRequest;
+use pdsmigration_common::{did_to_car_filename, ImportPDSRequest};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -57,8 +57,8 @@ pub async fn import_pds_api(
     let client = aws_sdk_s3::Client::new(&config);
 
     let bucket_name = "migration".to_string();
-    let file_name = did.replace(":", "-") + ".car";
-    let key = "migration/".to_string() + &did.replace(":", "-") + ".car";
+    let file_name = did_to_car_filename(&did);
+    let key = format!("migration/{file_name}");
 
     // Download the file from S3
     let s3_response = client

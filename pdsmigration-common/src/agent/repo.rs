@@ -1,4 +1,4 @@
-use crate::{GetRepoRequest, MigrationError};
+use crate::{did_to_car_filename, GetRepoRequest, MigrationError};
 use bsky_sdk::api::types::string::Did;
 use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
@@ -111,7 +111,7 @@ pub async fn account_export(agent: &BskyAgent, did: &Did) -> Result<(), Migratio
         .await;
     match result {
         Ok(output) => {
-            tokio::fs::write(did.as_str().to_string().replace(":", "-") + ".car", output)
+            tokio::fs::write(did_to_car_filename(did), output)
                 .await
                 .map_err(|error| {
                     tracing::error!("[{}] Failed write repo bytes to file: {:?}", did_str, error);
