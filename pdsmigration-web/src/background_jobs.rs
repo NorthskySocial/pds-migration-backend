@@ -459,8 +459,50 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                match upload_blob_v2(&agent, file, &blob_cid_str).await {
-                    Ok(_) => {
+                // we try to upload each blob once, with one retry if first one fails
+                // to account for transient issues on the PDS side (e.g. temporary S3 timeouts)
+                let upload_result = match upload_blob_v2(&agent, file.clone(), &blob_cid_str).await
+                {
+                    Ok(()) => Ok(()),
+                    Err(first_err) => {
+                        tracing::warn!(
+                            "[{}][{}] First upload attempt failed for blob {} (error: {}); retrying once",
+                            did_inner,
+                            JobKind::UploadBlobs,
+                            blob_cid_str,
+                            first_err
+                        );
+                        wait_if_rate_limited(&first_err, &did_inner, JobKind::UploadBlobs).await;
+
+                        // retry!
+                        match upload_blob_v2(&agent, file, &blob_cid_str).await {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "[{}][{}] Retry succeeded for blob {} (initial error: {})",
+                                    did_inner,
+                                    JobKind::UploadBlobs,
+                                    blob_cid_str,
+                                    first_err
+                                );
+                                Ok(())
+                            }
+                            Err(second_err) => {
+                                tracing::error!(
+                                    "[{}][{}] Retry failed for blob {} (initial error: {}; retry error: {})",
+                                    did_inner,
+                                    JobKind::UploadBlobs,
+                                    blob_cid_str,
+                                    first_err,
+                                    second_err
+                                );
+                                Err(second_err)
+                            }
+                        }
+                    }
+                };
+
+                match upload_result {
+                    Ok(()) => {
                         let mut st = state.write().await;
                         st.record_success(id, blob_cid_str.clone());
                     }
