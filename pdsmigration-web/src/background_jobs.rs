@@ -312,10 +312,10 @@ async fn export_blobs_api_job(
     )
     .await?;
 
-    let path = did_blobs_path(&session.did)?;
+    let did_blobs_path = did_blobs_path(&session.did)?;
     let did = session.did.as_str();
     if req.is_missing_blob_request {
-        if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
+        if let Err(e) = tokio::fs::remove_dir_all(did_blobs_path.as_path()).await {
             if e.kind() != ErrorKind::NotFound {
                 return Err(MigrationError::Runtime {
                     message: format!("Failed to clean directory: {}", e),
@@ -324,7 +324,7 @@ async fn export_blobs_api_job(
         }
         tracing::info!("[{}] Cleaned directory for missing blob request", did);
     }
-    match tokio::fs::create_dir(path.as_path()).await {
+    match tokio::fs::create_dir(did_blobs_path.as_path()).await {
         Ok(_) => {
             tracing::info!("[{}] Successfully created directory", did);
         }
@@ -346,7 +346,7 @@ async fn export_blobs_api_job(
                 });
             }
         };
-        let mut filepath = did_blobs_path(&session.did)?;
+        let mut filepath = did_blobs_path.clone();
         filepath.push(
             missing_blob
                 .record_uri
@@ -365,9 +365,9 @@ async fn export_blobs_api_job(
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
-                    let mut path = did_blobs_path(&session.did)?;
-                    path.push(&blob_cid_str);
-                    let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
+                    let mut blob_path = did_blobs_path.clone();
+                    blob_path.push(&blob_cid_str);
+                    let mut file = tokio::fs::File::create(blob_path.as_path()).await.unwrap();
 
                     while let Some(chunk) = stream.next().await {
                         let chunk = chunk.unwrap();
@@ -459,8 +459,50 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                match upload_blob_v2(&agent, file, &blob_cid_str).await {
-                    Ok(_) => {
+                // we try to upload each blob once, with one retry if first one fails
+                // to account for transient issues on the PDS side (e.g. temporary S3 timeouts)
+                let upload_result = match upload_blob_v2(&agent, file.clone(), &blob_cid_str).await
+                {
+                    Ok(()) => Ok(()),
+                    Err(first_err) => {
+                        tracing::warn!(
+                            "[{}][{}] First upload attempt failed for blob {} (error: {}); retrying once",
+                            did_inner,
+                            JobKind::UploadBlobs,
+                            blob_cid_str,
+                            first_err
+                        );
+                        wait_if_rate_limited(&first_err, &did_inner, JobKind::UploadBlobs).await;
+
+                        // retry!
+                        match upload_blob_v2(&agent, file, &blob_cid_str).await {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "[{}][{}] Retry succeeded for blob {} (initial error: {})",
+                                    did_inner,
+                                    JobKind::UploadBlobs,
+                                    blob_cid_str,
+                                    first_err
+                                );
+                                Ok(())
+                            }
+                            Err(second_err) => {
+                                tracing::error!(
+                                    "[{}][{}] Retry failed for blob {} (initial error: {}; retry error: {})",
+                                    did_inner,
+                                    JobKind::UploadBlobs,
+                                    blob_cid_str,
+                                    first_err,
+                                    second_err
+                                );
+                                Err(second_err)
+                            }
+                        }
+                    }
+                };
+
+                match upload_result {
+                    Ok(()) => {
                         let mut st = state.write().await;
                         st.record_success(id, blob_cid_str.clone());
                     }
@@ -494,13 +536,7 @@ async fn handle_rate_limit_error(
 ) {
     match error {
         MigrationError::RateLimitReached => {
-            tracing::error!(
-                "[{}][{}] Rate limit reached, waiting 5 minutes",
-                did,
-                operation
-            );
-            let five_minutes = Duration::from_secs(300);
-            tokio::time::sleep(five_minutes).await;
+            wait_if_rate_limited(error, did, operation.clone()).await;
         }
         _ => {
             tracing::error!(
@@ -518,6 +554,19 @@ async fn handle_rate_limit_error(
         blob_id,
         error
     );
+}
+
+/// Sleeps for the standard rate-limit cooldown when `error` is
+/// `MigrationError::RateLimitReached`. No-op for any other error variant.
+async fn wait_if_rate_limited(error: &MigrationError, did: &str, operation: JobKind) {
+    if matches!(error, MigrationError::RateLimitReached) {
+        tracing::error!(
+            "[{}][{}] Rate limit reached, waiting 5 minutes",
+            did,
+            operation
+        );
+        tokio::time::sleep(Duration::from_secs(300)).await;
+    }
 }
 
 #[cfg(test)]
@@ -664,5 +713,109 @@ mod tests {
         assert_eq!(progress.total, Some(5));
         assert_eq!(progress.successful_blobs, 3);
         assert_eq!(progress.invalid_blobs, 2);
+    }
+
+    #[test]
+    fn test_job_state_set_running_unknown_id_is_noop() {
+        let mut state = JobState::default();
+        state.set_running(Uuid::new_v4());
+        assert!(state.records.is_empty());
+    }
+
+    #[test]
+    fn test_job_state_record_success_failure_unknown_id_is_noop() {
+        let mut state = JobState::default();
+        state.record_success(Uuid::new_v4(), "x".to_string());
+        state.record_failure(Uuid::new_v4(), "y".to_string());
+        state.update_total(Uuid::new_v4(), 1);
+        assert!(state.records.is_empty());
+    }
+
+    #[actix_rt::test]
+    async fn test_job_state_finalize_removes_running_handle() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        state
+            .records
+            .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+        let handle = tokio::spawn(async {});
+        state.running.insert(id, RunningJob { handle });
+        assert!(state.running.contains_key(&id));
+
+        state.finalize(id, Ok(()));
+
+        assert!(!state.running.contains_key(&id));
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_get_returns_none_when_unknown() {
+        let mgr = JobManager::new();
+        assert!(mgr.get(Uuid::new_v4()).await.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_list_and_get_after_manual_insert() {
+        let mgr = JobManager::new();
+        let id = Uuid::new_v4();
+        {
+            let mut st = mgr.state.write().await;
+            st.records
+                .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+        }
+
+        let list = mgr.list().await;
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id.to_string());
+
+        let got = mgr.get(id).await.unwrap();
+        assert_eq!(got.id, id.to_string());
+        assert!(matches!(got.kind, JobKind::UploadBlobs));
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_cancel_unknown_returns_false() {
+        let mgr = JobManager::new();
+        assert!(!mgr.cancel(Uuid::new_v4()).await);
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_cancel_marks_record_canceled_and_aborts() {
+        let mgr = JobManager::new();
+        let id = Uuid::new_v4();
+        {
+            let mut st = mgr.state.write().await;
+            st.records
+                .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+            let handle = tokio::spawn(async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            });
+            st.running.insert(id, RunningJob { handle });
+        }
+
+        assert!(mgr.cancel(id).await);
+
+        let rec = mgr.get(id).await.unwrap();
+        assert_eq!(rec.status, JobStatus::Canceled);
+        assert!(rec.finished_at.is_some());
+
+        let st = mgr.state.read().await;
+        assert!(!st.running.contains_key(&id));
+    }
+
+    #[actix_rt::test]
+    async fn test_wait_if_rate_limited_noop_for_non_rate_limit() {
+        let start = std::time::Instant::now();
+        wait_if_rate_limited(
+            &MigrationError::Upstream {
+                message: "boom".to_string(),
+            },
+            "did:test",
+            JobKind::UploadBlobs,
+        )
+        .await;
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "should not sleep for non-rate-limit errors"
+        );
     }
 }
