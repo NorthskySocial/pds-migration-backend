@@ -13,9 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      attestations: write
-      id-token: write
     timeout-minutes: 120
     env:
       RUSTFLAGS: "-D warnings"
@@ -28,17 +25,6 @@ jobs:
     steps:
       - name: "Checkout"
         uses: actions/checkout@v6
-      - name: Log in to the Container registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
       - name: "Show environment"
         run: |
           rustc -vV
