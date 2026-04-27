@@ -665,4 +665,91 @@ mod tests {
         assert_eq!(progress.successful_blobs, 3);
         assert_eq!(progress.invalid_blobs, 2);
     }
+
+    #[test]
+    fn test_job_state_set_running_unknown_id_is_noop() {
+        let mut state = JobState::default();
+        state.set_running(Uuid::new_v4());
+        assert!(state.records.is_empty());
+    }
+
+    #[test]
+    fn test_job_state_record_success_failure_unknown_id_is_noop() {
+        let mut state = JobState::default();
+        state.record_success(Uuid::new_v4(), "x".to_string());
+        state.record_failure(Uuid::new_v4(), "y".to_string());
+        state.update_total(Uuid::new_v4(), 1);
+        assert!(state.records.is_empty());
+    }
+
+    #[actix_rt::test]
+    async fn test_job_state_finalize_removes_running_handle() {
+        let mut state = JobState::default();
+        let id = Uuid::new_v4();
+        state
+            .records
+            .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+        let handle = tokio::spawn(async {});
+        state.running.insert(id, RunningJob { handle });
+        assert!(state.running.contains_key(&id));
+
+        state.finalize(id, Ok(()));
+
+        assert!(!state.running.contains_key(&id));
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_get_returns_none_when_unknown() {
+        let mgr = JobManager::new();
+        assert!(mgr.get(Uuid::new_v4()).await.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_list_and_get_after_manual_insert() {
+        let mgr = JobManager::new();
+        let id = Uuid::new_v4();
+        {
+            let mut st = mgr.state.write().await;
+            st.records
+                .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+        }
+
+        let list = mgr.list().await;
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, id.to_string());
+
+        let got = mgr.get(id).await.unwrap();
+        assert_eq!(got.id, id.to_string());
+        assert!(matches!(got.kind, JobKind::UploadBlobs));
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_cancel_unknown_returns_false() {
+        let mgr = JobManager::new();
+        assert!(!mgr.cancel(Uuid::new_v4()).await);
+    }
+
+    #[actix_rt::test]
+    async fn test_job_manager_cancel_marks_record_canceled_and_aborts() {
+        let mgr = JobManager::new();
+        let id = Uuid::new_v4();
+        {
+            let mut st = mgr.state.write().await;
+            st.records
+                .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
+            let handle = tokio::spawn(async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            });
+            st.running.insert(id, RunningJob { handle });
+        }
+
+        assert!(mgr.cancel(id).await);
+
+        let rec = mgr.get(id).await.unwrap();
+        assert_eq!(rec.status, JobStatus::Canceled);
+        assert!(rec.finished_at.is_some());
+
+        let st = mgr.state.read().await;
+        assert!(!st.running.contains_key(&id));
+    }
 }
