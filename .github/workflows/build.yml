@@ -31,15 +31,15 @@ jobs:
           cargo -vV
       - name: "Enable Rust Caching"
         uses: Swatinem/rust-cache@v2
+      - name: "Run Formatter"
+        id: formatting
+        run: cargo fmt -- --check
       - name: "Run Tests"
         id: tests
         run: cargo test
       - name: "Run Check"
         id: check
         run: cargo check
-      - name: "Run Formatter"
-        id: formatting
-        run: cargo fmt -- --check
       - name: "Clean up disk space before Docker build"
         run: |
           cargo clean
