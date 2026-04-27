@@ -312,10 +312,10 @@ async fn export_blobs_api_job(
     )
     .await?;
 
-    let path = did_blobs_path(&session.did)?;
+    let did_blobs_path = did_blobs_path(&session.did)?;
     let did = session.did.as_str();
     if req.is_missing_blob_request {
-        if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
+        if let Err(e) = tokio::fs::remove_dir_all(did_blobs_path.as_path()).await {
             if e.kind() != ErrorKind::NotFound {
                 return Err(MigrationError::Runtime {
                     message: format!("Failed to clean directory: {}", e),
@@ -324,7 +324,7 @@ async fn export_blobs_api_job(
         }
         tracing::info!("[{}] Cleaned directory for missing blob request", did);
     }
-    match tokio::fs::create_dir(path.as_path()).await {
+    match tokio::fs::create_dir(did_blobs_path.as_path()).await {
         Ok(_) => {
             tracing::info!("[{}] Successfully created directory", did);
         }
@@ -346,7 +346,7 @@ async fn export_blobs_api_job(
                 });
             }
         };
-        let mut filepath = did_blobs_path(&session.did)?;
+        let mut filepath = did_blobs_path.clone();
         filepath.push(
             missing_blob
                 .record_uri
@@ -365,9 +365,9 @@ async fn export_blobs_api_job(
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
                 Ok(mut stream) => {
                     tracing::info!("[{}] Successfully fetched missing blob", did);
-                    let mut path = did_blobs_path(&session.did)?;
-                    path.push(&blob_cid_str);
-                    let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
+                    let mut blob_path = did_blobs_path.clone();
+                    blob_path.push(&blob_cid_str);
+                    let mut file = tokio::fs::File::create(blob_path.as_path()).await.unwrap();
 
                     while let Some(chunk) = stream.next().await {
                         let chunk = chunk.unwrap();
