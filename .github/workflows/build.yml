@@ -49,7 +49,6 @@ jobs:
           context: .
           push: false
           outputs: type=cacheonly
-          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: "Some checks failed"
