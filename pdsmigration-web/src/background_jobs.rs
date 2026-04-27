@@ -494,13 +494,7 @@ async fn handle_rate_limit_error(
 ) {
     match error {
         MigrationError::RateLimitReached => {
-            tracing::error!(
-                "[{}][{}] Rate limit reached, waiting 5 minutes",
-                did,
-                operation
-            );
-            let five_minutes = Duration::from_secs(300);
-            tokio::time::sleep(five_minutes).await;
+            wait_if_rate_limited(error, did, operation.clone()).await;
         }
         _ => {
             tracing::error!(
@@ -518,6 +512,19 @@ async fn handle_rate_limit_error(
         blob_id,
         error
     );
+}
+
+/// Sleeps for the standard rate-limit cooldown when `error` is
+/// `MigrationError::RateLimitReached`. No-op for any other error variant.
+async fn wait_if_rate_limited(error: &MigrationError, did: &str, operation: JobKind) {
+    if matches!(error, MigrationError::RateLimitReached) {
+        tracing::error!(
+            "[{}][{}] Rate limit reached, waiting 5 minutes",
+            did,
+            operation
+        );
+        tokio::time::sleep(Duration::from_secs(300)).await;
+    }
 }
 
 #[cfg(test)]
@@ -751,5 +758,22 @@ mod tests {
 
         let st = mgr.state.read().await;
         assert!(!st.running.contains_key(&id));
+    }
+
+    #[actix_rt::test]
+    async fn test_wait_if_rate_limited_noop_for_non_rate_limit() {
+        let start = std::time::Instant::now();
+        wait_if_rate_limited(
+            &MigrationError::Upstream {
+                message: "boom".to_string(),
+            },
+            "did:test",
+            JobKind::UploadBlobs,
+        )
+        .await;
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "should not sleep for non-rate-limit errors"
+        );
     }
 }
