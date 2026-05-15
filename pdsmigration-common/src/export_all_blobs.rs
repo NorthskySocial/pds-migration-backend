@@ -1,5 +1,5 @@
 use crate::agent::{download_blob, list_all_blobs, login_helper};
-use crate::{build_agent, did_blobs_path, format_cid, MigrationError};
+use crate::{build_agent, did_blobs_path, format_cid, MigrationError, REDACTED};
 use bsky_sdk::api::types::string::Did;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ impl fmt::Debug for GetBlobRequest {
         f.debug_struct("GetBlobRequest")
             .field("did", &self.did)
             .field("cid", &self.cid)
-            .field("token", &"[REDACTED]")
+            .field("token", &REDACTED)
             .finish()
     }
 }
@@ -37,7 +37,7 @@ impl fmt::Debug for ExportAllBlobsRequest {
         f.debug_struct("ExportAllBlobsRequest")
             .field("origin", &self.origin)
             .field("did", &self.did)
-            .field("origin_token", &"[REDACTED]")
+            .field("origin_token", &REDACTED)
             .finish()
     }
 }
@@ -48,7 +48,7 @@ pub struct ExportAllBlobsResponse {
     pub failed_blobs: Vec<String>,
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(req))]
 pub async fn export_all_blobs_api(
     req: ExportAllBlobsRequest,
 ) -> Result<ExportAllBlobsResponse, MigrationError> {
@@ -126,4 +126,36 @@ pub async fn export_all_blobs_api(
         successful_blobs,
         failed_blobs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bsky_sdk::api::types::string::Did;
+
+    #[test]
+    fn export_all_blobs_request_redacts_token() {
+        let req = ExportAllBlobsRequest {
+            origin: "https://src.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            origin_token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+    }
+
+    #[test]
+    fn get_blob_request_redacts_token() {
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        let req = GetBlobRequest {
+            did,
+            cid: "bafyexamplecid".to_string(),
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+        assert!(dbg.contains("bafyexamplecid"));
+    }
 }

@@ -2,11 +2,12 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use crate::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::{ExportBlobsRequest, ExportBlobsResponse};
+use pdsmigration_common::{ExportBlobsRequest, ExportBlobsResponse, REDACTED};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Deserialize, Serialize, ToSchema)]
 pub struct ExportBlobsApiRequest {
     #[schema(example = "https://destinationPDS.example.com")]
     pub destination: String,
@@ -19,6 +20,19 @@ pub struct ExportBlobsApiRequest {
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub destination_token: String,
     pub is_missing_blob_request: bool,
+}
+
+impl fmt::Debug for ExportBlobsApiRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExportBlobsApiRequest")
+            .field("destination", &self.destination)
+            .field("origin", &self.origin)
+            .field("did", &self.did)
+            .field("origin_token", &REDACTED)
+            .field("destination_token", &REDACTED)
+            .field("is_missing_blob_request", &self.is_missing_blob_request)
+            .finish()
+    }
 }
 
 impl From<ExportBlobsApiRequest> for ExportBlobsRequest {
@@ -71,4 +85,25 @@ pub async fn export_blobs_api(req: Json<ExportBlobsApiRequest>) -> Result<HttpRe
     tracing::info!("[{}] Blobs exported successfully", did);
     let result: ExportBlobsApiResponse = result.into();
     Ok(HttpResponse::Ok().json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_blobs_api_request_redacts_both_tokens() {
+        let req = ExportBlobsApiRequest {
+            destination: "https://dst.example.com".to_string(),
+            origin: "https://src.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            origin_token: "src-secret".to_string(),
+            destination_token: "dst-secret".to_string(),
+            is_missing_blob_request: false,
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("src-secret"));
+        assert!(!dbg.contains("dst-secret"));
+    }
 }

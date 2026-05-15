@@ -1,5 +1,5 @@
 use crate::agent::{login_helper, upload_blob};
-use crate::{build_agent, did_blobs_path, MigrationError};
+use crate::{build_agent, did_blobs_path, MigrationError, REDACTED};
 use bsky_sdk::api::agent::Configure;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -16,12 +16,12 @@ impl fmt::Debug for UploadBlobsRequest {
         f.debug_struct("UploadBlobsRequest")
             .field("pds_host", &self.pds_host)
             .field("did", &self.did)
-            .field("token", &"[REDACTED]")
+            .field("token", &REDACTED)
             .finish()
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(req))]
 pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
@@ -69,4 +69,21 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
 
     tracing::info!("[{}] Finished uploading blobs", did);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_blobs_request_redacts_token() {
+        let req = UploadBlobsRequest {
+            pds_host: "https://pds.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+    }
 }

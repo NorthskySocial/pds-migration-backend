@@ -1,12 +1,23 @@
 use crate::agent::{login_helper, missing_blobs};
-use crate::{build_agent, MigrationError};
+use crate::{build_agent, MigrationError, REDACTED};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct MissingBlobsRequest {
     pub pds_host: String,
     pub did: String,
     pub token: String,
+}
+
+impl fmt::Debug for MissingBlobsRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MissingBlobsRequest")
+            .field("pds_host", &self.pds_host)
+            .field("did", &self.did)
+            .field("token", &REDACTED)
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -41,4 +52,21 @@ pub async fn missing_blobs_api(
     Ok(MissingBlobsResponse {
         missing_blobs: missing_blob_cids,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_blobs_request_redacts_token() {
+        let req = MissingBlobsRequest {
+            pds_host: "https://pds.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+    }
 }

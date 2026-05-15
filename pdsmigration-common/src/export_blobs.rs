@@ -1,6 +1,6 @@
 use crate::agent::{download_blob, login_helper, missing_blobs};
 use crate::export_all_blobs::GetBlobRequest;
-use crate::{build_agent, did_blobs_path, format_cid, MigrationError};
+use crate::{build_agent, did_blobs_path, format_cid, MigrationError, REDACTED};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
@@ -23,8 +23,8 @@ impl std::fmt::Debug for ExportBlobsRequest {
             .field("destination", &self.destination)
             .field("origin", &self.origin)
             .field("did", &self.did)
-            .field("origin_token", &"[REDACTED]")
-            .field("destination_token", &"[REDACTED]")
+            .field("origin_token", &REDACTED)
+            .field("destination_token", &REDACTED)
             .field("is_missing_blob_request", &self.is_missing_blob_request)
             .finish()
     }
@@ -36,7 +36,7 @@ pub struct ExportBlobsResponse {
     pub invalid_blobs: Vec<String>,
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(req))]
 pub async fn export_blobs_api(
     req: ExportBlobsRequest,
 ) -> Result<ExportBlobsResponse, MigrationError> {
@@ -177,7 +177,7 @@ mod tests {
         let debug_output = format!("{:?}", request);
 
         // Verify that the sensitive tokens are redacted
-        assert!(debug_output.contains("[REDACTED]"));
+        assert!(debug_output.contains(REDACTED));
         assert!(!debug_output.contains("secret-origin-token-12345"));
         assert!(!debug_output.contains("secret-destination-token-67890"));
 

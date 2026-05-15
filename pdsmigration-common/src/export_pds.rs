@@ -1,5 +1,5 @@
 use crate::agent::{download_repo, login_helper};
-use crate::{build_agent, did_to_car_filename, GetRepoRequest, MigrationError};
+use crate::{build_agent, did_to_car_filename, GetRepoRequest, MigrationError, REDACTED};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -17,7 +17,7 @@ impl std::fmt::Debug for ExportPDSRequest {
         f.debug_struct("ExportPDSRequest")
             .field("pds_host", &self.pds_host)
             .field("did", &self.did)
-            .field("token", &"[REDACTED]")
+            .field("token", &REDACTED)
             .finish()
     }
 }
@@ -100,4 +100,21 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_pds_request_redacts_token() {
+        let req = ExportPDSRequest {
+            pds_host: "https://pds.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+    }
 }

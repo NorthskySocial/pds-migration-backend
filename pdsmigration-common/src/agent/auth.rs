@@ -17,7 +17,7 @@ pub async fn build_agent() -> Result<BskyAgent, MigrationError> {
         })
 }
 
-#[tracing::instrument(skip(agent))]
+#[tracing::instrument(skip(agent, token))]
 pub async fn login_helper(
     agent: &BskyAgent,
     pds_host: &str,
