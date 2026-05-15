@@ -1,4 +1,4 @@
-FROM rust:1.91.1 AS builder
+FROM rust:1.95.0 AS builder
 
 # Copy local code to the container image.
 WORKDIR /app
