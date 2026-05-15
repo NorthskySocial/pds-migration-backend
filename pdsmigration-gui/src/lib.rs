@@ -984,11 +984,11 @@ pub fn encode_did_key(pubkey: &PublicKey) -> String {
 
 /// Normalizes a PDS host string in-place, ensuring it has an `https://` scheme
 /// if missing, and is a valid URL.
-pub fn normalize_pds_host(host: &mut String) -> Result<(), ()> {
+pub fn normalize_pds_host(host: &mut String) -> Result<(), GuiError> {
     let trimmed = host.trim().to_string();
     if trimmed.is_empty() {
         tracing::error!("PDS host cannot be empty");
-        return Err(());
+        return Err(GuiError::InvalidPdsEndpoint);
     }
     *host = trimmed;
 
@@ -1006,14 +1006,14 @@ pub fn normalize_pds_host(host: &mut String) -> Result<(), ()> {
         Ok(url) if url.scheme() == "https" && url.host_str().is_some() => Ok(()),
         Ok(_) => {
             tracing::error!("PDS host must use HTTPS protocol");
-            Err(())
+            Err(GuiError::InvalidPdsEndpoint)
         }
         Err(e) => {
             tracing::error!(
                 "Invalid URL format. PDS host must use HTTPS protocol: {}",
                 e
             );
-            Err(())
+            Err(GuiError::InvalidPdsEndpoint)
         }
     }
 }

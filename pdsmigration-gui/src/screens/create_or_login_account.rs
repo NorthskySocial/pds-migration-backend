@@ -3,8 +3,8 @@ use crate::errors::GuiError;
 use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::{
-    check_did_exists, create_account, fetch_tos_and_privacy_policy, styles,
-    CreateAccountParameters, ScreenType, normalize_pds_host,
+    check_did_exists, create_account, fetch_tos_and_privacy_policy, normalize_pds_host, styles,
+    CreateAccountParameters, ScreenType,
 };
 use bsky_sdk::BskyAgent;
 use egui::Ui;

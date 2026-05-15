@@ -3,7 +3,7 @@ use crate::errors::GuiError;
 use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::styles::WIDGET_SPACING_BASE;
-use crate::{styles, ScreenType, normalize_pds_host};
+use crate::{normalize_pds_host, styles, ScreenType};
 use bsky_sdk::BskyAgent;
 use egui::Ui;
 use std::sync::Arc;

@@ -48,7 +48,11 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                 }
             })?;
             path.push(did_to_car_filename(&session.did));
-            tracing::info!("[{}] Writing account repo export to {}", did, path.display());
+            tracing::info!(
+                "[{}] Writing account repo export to {}",
+                did,
+                path.display()
+            );
 
             let mut file = tokio::fs::File::create(path.as_path())
                 .await

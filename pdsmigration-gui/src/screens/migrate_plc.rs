@@ -133,7 +133,12 @@ impl MigratePLC {
                     tracing::error!("User Recovery Key is empty");
                     return;
                 }
-                if self.pds_session.blocking_read().old_session_config().is_none() {
+                if self
+                    .pds_session
+                    .blocking_read()
+                    .old_session_config()
+                    .is_none()
+                {
                     tracing::error!("No active old PDS session; please log in first");
                     return;
                 }
