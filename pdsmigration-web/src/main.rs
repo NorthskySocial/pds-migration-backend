@@ -9,7 +9,7 @@ use crate::api::{
     activate_account_api, create_account_api, deactivate_account_api,
     enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
     get_service_auth_api, health_check, import_pds_api, migrate_plc_api, migrate_preferences_api,
-    missing_blobs_api, request_token_api,
+    request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
@@ -21,7 +21,6 @@ use actix_web::ResponseError;
 use actix_web::{post, web, App, HttpResponse, HttpServer};
 use actix_web_prom::PrometheusMetricsBuilder;
 use dotenvy::dotenv;
-use pdsmigration_common::APPLICATION_JSON;
 use std::io;
 use std::time::Duration;
 use tracing_actix_web::TracingLogger;
@@ -65,7 +64,6 @@ fn init_http_server(app_config: AppConfig) -> io::Result<Server> {
             .service(create_account_api)
             .service(export_pds_api)
             .service(import_pds_api)
-            .service(missing_blobs_api)
             .service(enqueue_export_blobs_job_api)
             .service(enqueue_upload_blobs_job_api)
             .service(get_job_api)
@@ -169,7 +167,6 @@ mod tests {
                 .service(create_account_api)
                 .service(export_pds_api)
                 .service(import_pds_api)
-                .service(missing_blobs_api)
                 .service(activate_account_api)
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)

@@ -4,7 +4,7 @@ use pdsmigration_web::{
         activate_account_api, create_account_api, deactivate_account_api,
         enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
         get_service_auth_api, health_check, import_pds_api, migrate_plc_api,
-        migrate_preferences_api, missing_blobs_api, request_token_api,
+        migrate_preferences_api, request_token_api,
     },
     background_jobs::JobManager,
     config::{AppConfig, ExternalServices, ServerConfig},
@@ -67,7 +67,6 @@ mod integration_tests {
                 .service(create_account_api)
                 .service(export_pds_api)
                 .service(import_pds_api)
-                .service(missing_blobs_api)
                 .service(activate_account_api)
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)
@@ -158,26 +157,6 @@ mod integration_tests {
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[actix_rt::test]
-    async fn test_missing_blobs_missing_fields() {
-        let app_config = create_test_config();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .service(missing_blobs_api),
-        )
-        .await;
-
-        let req = test::TestRequest::post()
-            .uri("/missing-blobs")
-            .set_json(&json!({}))
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[actix_rt::test]
