@@ -308,7 +308,7 @@ impl CreateOrLoginAccount {
                     value.unwrap_or("".to_string())
                 };
                 let terms_of_service = {
-                    let terms_of_service = self.privacy_policy_lock.blocking_read().clone();
+                    let terms_of_service = self.terms_of_service_lock.blocking_read().clone();
                     let value = terms_of_service.clone();
                     value.unwrap_or("".to_string())
                 };
