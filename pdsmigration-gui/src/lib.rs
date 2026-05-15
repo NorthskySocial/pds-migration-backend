@@ -63,7 +63,7 @@ pub async fn activate_account(session_config: SessionConfig) -> Result<(), GuiEr
     let did = session_config.did().to_string();
 
     tracing::info!("Activating Account started");
-    match pdsmigration_common::activate_account(pds_host.as_str(), token.as_str(), did.as_str())
+    match pdsmigration_common::activate_account(pds_host.as_str(), did.as_str(), token.as_str())
         .await
     {
         Ok(_) => {

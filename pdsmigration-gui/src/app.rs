@@ -328,7 +328,7 @@ impl eframe::App for PdsMigrationApp {
         self.check_for_errors(ctx);
         self.update_current_screen();
         self.show_side_panel(ctx);
-        self.show_central_panel(ctx);
         self.show_bottom_panel(ctx);
+        self.show_central_panel(ctx);
     }
 }
