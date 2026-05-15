@@ -797,8 +797,8 @@ pub fn run() -> eframe::Result {
         viewport: {
             egui::ViewportBuilder {
                 icon: Some(Arc::new(icon_data)),
-                min_inner_size: Some(egui::vec2(640.0, 480.0)),
-                inner_size: Some(egui::vec2(900.0, 700.0)),
+                min_inner_size: Some(egui::vec2(800.0, 600.0)),
+                inner_size: Some(egui::vec2(1280.0, 800.0)),
                 ..Default::default()
             }
         },

@@ -169,7 +169,11 @@ impl PdsMigrationApp {
     fn show_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             styles::set_text_color(ui);
-            self.current_screen.ui(ui, ctx);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    self.current_screen.ui(ui, ctx);
+                });
         });
     }
 
