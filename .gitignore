@@ -26,3 +26,4 @@ Cargo.lock
 did-plc-*/
 *.car
 env*
+missing_blobs.txt

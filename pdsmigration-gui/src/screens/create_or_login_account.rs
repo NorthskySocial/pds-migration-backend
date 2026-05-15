@@ -77,7 +77,18 @@ impl CreateOrLoginAccount {
             let value = lock.blocking_read();
             value.clone()
         };
-        let did = pds_session.did().clone().unwrap();
+        let did = match pds_session.did().clone() {
+            Some(did) => did,
+            None => {
+                tracing::error!("No active session DID; please log in to your current PDS first");
+                let mut errors = self.error.blocking_write();
+                errors.push(GuiError::Other);
+                let mut ui_mode_write = self.ui_mode.blocking_write();
+                *ui_mode_write = UiMode::SelectPds;
+                self.pds_selected = false;
+                return;
+            }
+        };
         tokio::spawn(async move {
             match check_did_exists(new_pds_host.as_str(), did.as_str()).await {
                 Ok(res) => {
@@ -196,12 +207,15 @@ impl CreateOrLoginAccount {
 
     #[tracing::instrument(skip(self))]
     fn validate_create_inputs(&mut self) -> bool {
-        if self.new_password != self.confirm_password {
-            tracing::error!("Passwords do not match");
-            return false;
-        }
+        self.new_email = self.new_email.trim().to_string();
+        self.new_handle = self.new_handle.trim().to_string();
+        self.invite_code = self.invite_code.trim().to_string();
         if self.new_password.is_empty() {
             tracing::error!("Password cannot be empty");
+            return false;
+        }
+        if self.new_password != self.confirm_password {
+            tracing::error!("Passwords do not match");
             return false;
         }
         if self.new_handle.is_empty() {
@@ -210,6 +224,10 @@ impl CreateOrLoginAccount {
         }
         if self.new_email.is_empty() {
             tracing::error!("Email cannot be empty");
+            return false;
+        }
+        if !self.new_email.contains('@') || !self.new_email.contains('.') {
+            tracing::error!("Email does not look valid");
             return false;
         }
         if normalize_pds_host(&mut self.new_pds_host).is_err() {
@@ -407,15 +425,14 @@ impl CreateOrLoginAccount {
         if normalize_pds_host(&mut self.new_pds_host).is_err() {
             return false;
         }
-        let new_handle = self.new_handle.to_string();
-        let new_password = self.new_password.to_string();
+        self.new_handle = self.new_handle.trim().to_string();
 
-        if new_handle.is_empty() {
+        if self.new_handle.is_empty() {
             tracing::error!("Handle cannot be empty");
             return false;
         }
 
-        if new_password.is_empty() {
+        if self.new_password.is_empty() {
             tracing::error!("Password cannot be empty");
             return false;
         }

@@ -123,12 +123,18 @@ impl MigratePLC {
         });
         ui.horizontal(|ui| {
             styles::render_button(ui, ctx, "Submit", || {
+                self.plc_token = self.plc_token.trim().to_string();
+                self.user_recovery_key = self.user_recovery_key.trim().to_string();
                 if self.plc_token.is_empty() {
                     tracing::error!("PLC Signing Token is empty");
                     return;
                 }
                 if self.user_recovery_key.is_empty() {
                     tracing::error!("User Recovery Key is empty");
+                    return;
+                }
+                if self.pds_session.blocking_read().old_session_config().is_none() {
+                    tracing::error!("No active old PDS session; please log in first");
                     return;
                 }
 

@@ -165,15 +165,14 @@ impl OldLogin {
         if normalize_pds_host(&mut self.old_pds_host).is_err() {
             return false;
         }
-        let username = self.username.to_string();
-        let password = self.password.to_string();
+        self.username = self.username.trim().to_string();
 
-        if username.is_empty() {
+        if self.username.is_empty() {
             tracing::error!("Username cannot be empty");
             return false;
         }
 
-        if password.is_empty() {
+        if self.password.is_empty() {
             tracing::error!("Password cannot be empty");
             return false;
         }
@@ -225,6 +224,11 @@ impl Screen for OldLogin {
                 );
                 ui.add_space(WIDGET_SPACING_BASE);
                 styles::render_button(ui, ctx, "Submit", || {
+                    self.email_token = self.email_token.trim().to_string();
+                    if self.email_token.is_empty() {
+                        tracing::error!("Email token cannot be empty");
+                        return;
+                    }
                     self.confirm_email_token();
                 });
             });
