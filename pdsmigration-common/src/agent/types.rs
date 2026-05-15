@@ -29,8 +29,6 @@ pub type SubmitPlcOperationInputData =
 pub type PlcLogAudit = Vec<PlcLogAuditEntry>;
 
 pub const CREATE_ACCOUNT_PATH: &str = "/xrpc/com.atproto.server.createAccount";
-pub const GET_RECOMMENDED_DID_CREDENTIALS_PATH: &str =
-    "/xrpc/com.atproto.identity.getRecommendedDidCredentials";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlcLogAuditEntry {
@@ -63,15 +61,4 @@ pub struct PlcOpService {
     #[serde(rename = "type")]
     pub r#type: String,
     pub endpoint: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetRecommendedResponse {
-    #[serde(rename = "rotationKeys")]
-    pub rotation_keys: Vec<String>,
-    #[serde(rename = "alsoKnownAs")]
-    pub also_known_as: Vec<String>,
-    pub services: BTreeMap<String, PlcOpService>,
-    #[serde(rename = "verificationMethods")]
-    pub verification_methods: BTreeMap<String, String>,
 }

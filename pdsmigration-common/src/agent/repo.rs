@@ -1,7 +1,5 @@
-use crate::{did_to_car_filename, GetRepoRequest, MigrationError, APPLICATION_JSON};
-use bsky_sdk::api::types::string::Did;
+use crate::{GetRepoRequest, MigrationError, APPLICATION_JSON};
 use bsky_sdk::BskyAgent;
-use ipld_core::ipld::Ipld;
 
 #[tracing::instrument]
 pub async fn download_repo(
@@ -90,43 +88,4 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
         })?;
     tracing::info!("[{}] Successfully imported repo from {}", did_str, filepath);
     Ok(())
-}
-
-#[tracing::instrument(skip(agent))]
-pub async fn account_export(agent: &BskyAgent, did: &Did) -> Result<(), MigrationError> {
-    use bsky_sdk::api::com::atproto::sync::get_repo::{Parameters, ParametersData};
-    let did_str = did.as_str();
-    let result = agent
-        .api
-        .com
-        .atproto
-        .sync
-        .get_repo(Parameters {
-            data: ParametersData {
-                did: did.clone(),
-                since: None,
-            },
-            extra_data: Ipld::Null,
-        })
-        .await;
-    match result {
-        Ok(output) => {
-            tokio::fs::write(did_to_car_filename(did), output)
-                .await
-                .map_err(|error| {
-                    tracing::error!("[{}] Failed write repo bytes to file: {:?}", did_str, error);
-                    MigrationError::Runtime {
-                        message: error.to_string(),
-                    }
-                })?;
-            tracing::info!("[{}] write success", did_str);
-            Ok(())
-        }
-        Err(e) => {
-            tracing::error!("[{}] Failed to export account: {:?}", did_str, e);
-            Err(MigrationError::Upstream {
-                message: e.to_string(),
-            })
-        }
-    }
 }
