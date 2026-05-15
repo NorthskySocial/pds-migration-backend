@@ -4,7 +4,7 @@ use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::{
     check_did_exists, create_account, fetch_tos_and_privacy_policy, styles,
-    CreateAccountParameters, ScreenType,
+    CreateAccountParameters, ScreenType, normalize_pds_host,
 };
 use bsky_sdk::BskyAgent;
 use egui::Ui;
@@ -192,7 +192,7 @@ impl CreateOrLoginAccount {
     }
 
     #[tracing::instrument(skip(self))]
-    fn validate_create_inputs(&self) -> bool {
+    fn validate_create_inputs(&mut self) -> bool {
         if self.new_password != self.confirm_password {
             tracing::error!("Passwords do not match");
             return false;
@@ -203,28 +203,14 @@ impl CreateOrLoginAccount {
         }
         if self.new_handle.is_empty() {
             tracing::error!("Handle cannot be empty");
+            return false;
         }
         if self.new_email.is_empty() {
             tracing::error!("Email cannot be empty");
             return false;
         }
-        if self.new_pds_host.is_empty() {
-            tracing::error!("PDS Host cannot be empty");
+        if normalize_pds_host(&mut self.new_pds_host).is_err() {
             return false;
-        }
-        match reqwest::Url::parse(self.new_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
         }
 
         let invite_code_required = {
@@ -411,25 +397,12 @@ impl CreateOrLoginAccount {
     }
 
     #[tracing::instrument(skip(self))]
-    fn validate_login_inputs(&self) -> bool {
-        let new_pds_host = self.new_pds_host.to_string();
+    fn validate_login_inputs(&mut self) -> bool {
+        if normalize_pds_host(&mut self.new_pds_host).is_err() {
+            return false;
+        }
         let new_handle = self.new_handle.to_string();
         let new_password = self.new_password.to_string();
-
-        match reqwest::Url::parse(new_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
-        }
 
         if new_handle.is_empty() {
             tracing::error!("Handle cannot be empty");

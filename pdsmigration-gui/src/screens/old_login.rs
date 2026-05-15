@@ -3,7 +3,7 @@ use crate::errors::GuiError;
 use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::styles::WIDGET_SPACING_BASE;
-use crate::{styles, ScreenType};
+use crate::{styles, ScreenType, normalize_pds_host};
 use bsky_sdk::BskyAgent;
 use egui::Ui;
 use std::sync::Arc;
@@ -161,25 +161,12 @@ impl OldLogin {
         });
     }
 
-    fn validate_inputs(&self) -> bool {
-        let old_pds_host = self.old_pds_host.to_string();
+    fn validate_inputs(&mut self) -> bool {
+        if normalize_pds_host(&mut self.old_pds_host).is_err() {
+            return false;
+        }
         let username = self.username.to_string();
         let password = self.password.to_string();
-
-        match reqwest::Url::parse(old_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
-        }
 
         if username.is_empty() {
             tracing::error!("Username cannot be empty");

@@ -119,6 +119,7 @@ impl PdsMigrationApp {
         // Left side panel for navigation buttons (arranged top-down)
         egui::SidePanel::left("side_panel")
             .default_width(100.0)
+            .width_range(80.0..=300.0)
             .show(ctx, |ui| {
                 ui.add_space(20.0);
                 ui.vertical_centered_justified(|ui| {
@@ -160,6 +161,7 @@ impl PdsMigrationApp {
         TopBottomPanel::bottom("log_viewer_panel")
             .resizable(true)
             .default_height(200.0)
+            .height_range(80.0..=600.0)
             .show(ctx, |ui| {
                 ui.heading("Log Viewer");
                 self.show_log_viewer(ui);

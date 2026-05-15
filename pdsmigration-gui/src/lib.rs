@@ -981,3 +981,105 @@ pub fn encode_did_key(pubkey: &PublicKey) -> String {
     let pk_multibase = multibase::encode(Base58Btc, pk_wrapped.as_slice());
     format!("{DID_KEY_PREFIX}{pk_multibase}")
 }
+
+/// Normalizes a PDS host string in-place, ensuring it has an `https://` scheme
+/// if missing, and is a valid URL.
+pub fn normalize_pds_host(host: &mut String) -> Result<(), ()> {
+    let trimmed = host.trim().to_string();
+    if trimmed.is_empty() {
+        tracing::error!("PDS host cannot be empty");
+        return Err(());
+    }
+    *host = trimmed;
+
+    // If no scheme is present, autocomplete with https://
+    let has_scheme = host.starts_with("http://") || host.starts_with("https://");
+    if !has_scheme {
+        tracing::warn!(
+            "PDS host '{}' is missing a URL protocol; defaulting to https://",
+            host
+        );
+        *host = format!("https://{}", host);
+    }
+
+    match reqwest::Url::parse(host.as_str()) {
+        Ok(url) if url.scheme() == "https" && url.host_str().is_some() => Ok(()),
+        Ok(_) => {
+            tracing::error!("PDS host must use HTTPS protocol");
+            Err(())
+        }
+        Err(e) => {
+            tracing::error!(
+                "Invalid URL format. PDS host must use HTTPS protocol: {}",
+                e
+            );
+            Err(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_pds_host_accepts_https_url() {
+        let mut host = String::from("https://northsky.social");
+        assert!(normalize_pds_host(&mut host).is_ok());
+        assert_eq!(host, "https://northsky.social");
+    }
+
+    #[test]
+    fn normalize_pds_host_autocompletes_missing_scheme() {
+        let mut host = String::from("northsky.social");
+        assert!(normalize_pds_host(&mut host).is_ok());
+        assert_eq!(host, "https://northsky.social");
+    }
+
+    #[test]
+    fn normalize_pds_host_autocompletes_with_path_and_port() {
+        let mut host = String::from("pds.example.com:8443");
+        assert!(normalize_pds_host(&mut host).is_ok());
+        assert_eq!(host, "https://pds.example.com:8443");
+    }
+
+    #[test]
+    fn normalize_pds_host_trims_whitespace() {
+        let mut host = String::from("   northsky.social\n  ");
+        assert!(normalize_pds_host(&mut host).is_ok());
+        assert_eq!(host, "https://northsky.social");
+    }
+
+    #[test]
+    fn normalize_pds_host_trims_before_autocomplete_when_already_https() {
+        let mut host = String::from("  https://northsky.social  ");
+        assert!(normalize_pds_host(&mut host).is_ok());
+        assert_eq!(host, "https://northsky.social");
+    }
+
+    #[test]
+    fn normalize_pds_host_rejects_empty() {
+        let mut host = String::new();
+        assert!(normalize_pds_host(&mut host).is_err());
+    }
+
+    #[test]
+    fn normalize_pds_host_rejects_whitespace_only() {
+        let mut host = String::from("   \t\n");
+        assert!(normalize_pds_host(&mut host).is_err());
+    }
+
+    #[test]
+    fn normalize_pds_host_rejects_http_scheme() {
+        let mut host = String::from("http://northsky.social");
+        assert!(normalize_pds_host(&mut host).is_err());
+        // Field is left untouched (an http:// scheme is preserved as-is, not rewritten)
+        assert_eq!(host, "http://northsky.social");
+    }
+
+    #[test]
+    fn normalize_pds_host_rejects_non_http_scheme() {
+        let mut host = String::from("ftp://wrong.protocol.com");
+        assert!(normalize_pds_host(&mut host).is_err());
+    }
+}
