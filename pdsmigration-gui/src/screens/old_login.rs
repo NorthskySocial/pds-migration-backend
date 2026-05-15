@@ -239,3 +239,62 @@ impl Screen for OldLogin {
         ScreenType::OldLogin
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_login() -> OldLogin {
+        OldLogin::new(
+            Arc::new(RwLock::new(PdsSession::default())),
+            Arc::new(RwLock::new(Vec::new())),
+            Arc::new(RwLock::new(ScreenType::OldLogin)),
+        )
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_pds_host() {
+        let mut login = make_login();
+        login.username = "user.bsky.social".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_username() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_rejects_whitespace_only_username() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.username = "   \t  ".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+        // Should have been trimmed before the empty check ran.
+        assert_eq!(login.username, "");
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_password() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.username = "user.bsky.social".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_accepts_valid_inputs_and_normalizes_host() {
+        let mut login = make_login();
+        login.old_pds_host = "bsky.social".to_string();
+        login.username = "  user.bsky.social  ".to_string();
+        login.password = "hunter2".to_string();
+        assert!(login.validate_inputs());
+        assert_eq!(login.old_pds_host, "https://bsky.social");
+        assert_eq!(login.username, "user.bsky.social");
+    }
+}

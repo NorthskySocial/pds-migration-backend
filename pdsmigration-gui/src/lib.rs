@@ -995,6 +995,11 @@ pub fn normalize_pds_host(host: &mut String) -> Result<(), GuiError> {
     // If no scheme is present, autocomplete with https://
     let has_scheme = host.starts_with("http://") || host.starts_with("https://");
     if !has_scheme {
+        // Reject inputs that already contain a different scheme
+        if host.contains("://") {
+            tracing::error!("PDS host must use HTTPS protocol");
+            return Err(GuiError::InvalidPdsEndpoint);
+        }
         tracing::warn!(
             "PDS host '{}' is missing a URL protocol; defaulting to https://",
             host

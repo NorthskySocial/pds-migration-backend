@@ -726,4 +726,147 @@ mod tests {
         assert_eq!(params.new_handle, "handle.test.com");
         assert_eq!(params.invite_code, "invite123");
     }
+
+    fn make_account() -> CreateOrLoginAccount {
+        CreateOrLoginAccount::new(
+            create_test_session(),
+            create_test_errors(),
+            create_test_page(),
+            create_test_migration_step(),
+        )
+    }
+
+    fn fill_valid_create_inputs(account: &mut CreateOrLoginAccount) {
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_email = "user@example.com".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        account.confirm_password = "hunter2".to_string();
+    }
+
+    #[test]
+    fn validate_create_inputs_accepts_valid_inputs() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        assert!(account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_password() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_password = "".to_string();
+        account.confirm_password = "".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_password_mismatch() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.confirm_password = "different".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_handle() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_handle = "   ".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_email() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_email = "   ".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_email_without_at_or_dot() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_email = "not-an-email".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_pds_host() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_pds_host = "".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_trims_text_fields() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_email = "  user@example.com  ".to_string();
+        account.new_handle = "  user.northsky.social  ".to_string();
+        account.invite_code = "  ABC-123  ".to_string();
+        account.new_password = "hunter2".to_string();
+        account.confirm_password = "hunter2".to_string();
+        assert!(account.validate_create_inputs());
+        assert_eq!(account.new_email, "user@example.com");
+        assert_eq!(account.new_handle, "user.northsky.social");
+        assert_eq!(account.invite_code, "ABC-123");
+    }
+
+    #[test]
+    fn validate_create_inputs_normalizes_pds_host() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_pds_host = "northsky.social".to_string();
+        assert!(account.validate_create_inputs());
+        assert_eq!(account.new_pds_host, "https://northsky.social");
+    }
+
+    #[test]
+    fn validate_login_inputs_accepts_valid_inputs() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_pds_host() {
+        let mut account = make_account();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(!account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_handle() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "   ".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(!account.validate_login_inputs());
+        assert_eq!(account.new_handle, "");
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_password() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        assert!(!account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_normalizes_host_and_trims_handle() {
+        let mut account = make_account();
+        account.new_pds_host = "northsky.social".to_string();
+        account.new_handle = "  user.northsky.social  ".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(account.validate_login_inputs());
+        assert_eq!(account.new_pds_host, "https://northsky.social");
+        assert_eq!(account.new_handle, "user.northsky.social");
+    }
 }
