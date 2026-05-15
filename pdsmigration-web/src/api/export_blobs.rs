@@ -1,8 +1,10 @@
+use crate::api::EnqueueJobResponse;
+use crate::background_jobs::JobManager;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use crate::Json;
-use actix_web::HttpResponse;
-use pdsmigration_common::{ExportBlobsRequest, ExportBlobsResponse, REDACTED};
+use actix_web::{web, HttpResponse};
+use pdsmigration_common::{ExportBlobsRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -48,43 +50,34 @@ impl From<ExportBlobsApiRequest> for ExportBlobsRequest {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct ExportBlobsApiResponse {
-    pub successful_blobs: Vec<String>,
-    pub invalid_blobs: Vec<String>,
-}
-
-impl From<ExportBlobsResponse> for ExportBlobsApiResponse {
-    fn from(req: ExportBlobsResponse) -> Self {
-        Self {
-            successful_blobs: req.successful_blobs,
-            invalid_blobs: req.invalid_blobs,
-        }
-    }
-}
-
 #[utoipa::path(
     post,
-    path = "/export-blobs",
+    path = "/jobs/export-blobs",
     request_body = ExportBlobsApiRequest,
     responses(
-        (status = 200, description = "Export Blobs completed successfully", body = ExportBlobsApiResponse, content_type = "application/json"),
+        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
         (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
         (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
         (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination, is_missing_blob_request = req.is_missing_blob_request))]
-#[post("/export-blobs")]
-pub async fn export_blobs_api(req: Json<ExportBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
-    let req = req.into_inner();
-    let did = req.did.clone();
-    tracing::info!("[{}] Export blobs request received", did);
-    let result = pdsmigration_common::export_blobs_api(req.into()).await?;
-    tracing::info!("[{}] Blobs exported successfully", did);
-    let result: ExportBlobsApiResponse = result.into();
-    Ok(HttpResponse::Ok().json(result))
+#[tracing::instrument(skip(jobs, req))]
+#[post("/jobs/export-blobs")]
+pub async fn enqueue_export_blobs_job_api(
+    jobs: web::Data<JobManager>,
+    req: Json<ExportBlobsApiRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Enqueueing export-blobs job", did);
+    let id = jobs
+        .spawn_export_blobs(ExportBlobsRequest::from(req_inner))
+        .await?;
+    tracing::info!("[{}] Enqueued export-blobs job {}", did, id);
+    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
+        job_id: id.to_string(),
+    }))
 }
 
 #[cfg(test)]

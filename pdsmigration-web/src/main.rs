@@ -6,11 +6,9 @@ mod middleware;
 mod openapi;
 
 use crate::api::{
-    activate_account_api, cancel_job_api, create_account_api, deactivate_account_api,
-    enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_blobs_api, export_pds_api,
-    get_job_api, get_service_auth_api, health_check, import_pds_api, list_jobs_api,
-    long_health_check, migrate_plc_api, migrate_preferences_api, missing_blobs_api,
-    request_token_api, upload_blobs_api,
+    activate_account_api, create_account_api, deactivate_account_api, enqueue_export_blobs_job_api,
+    enqueue_upload_blobs_job_api, export_pds_api, get_job_api, get_service_auth_api, health_check,
+    import_pds_api, migrate_plc_api, migrate_preferences_api, request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
@@ -27,8 +25,6 @@ use std::time::Duration;
 use tracing_actix_web::TracingLogger;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-
-pub const APPLICATION_JSON: &str = "application/json";
 
 /*
  * Initialize the HTTP server
@@ -67,21 +63,15 @@ fn init_http_server(app_config: AppConfig) -> io::Result<Server> {
             .service(create_account_api)
             .service(export_pds_api)
             .service(import_pds_api)
-            .service(missing_blobs_api)
-            .service(export_blobs_api)
-            .service(upload_blobs_api)
             .service(enqueue_export_blobs_job_api)
             .service(enqueue_upload_blobs_job_api)
-            .service(list_jobs_api)
             .service(get_job_api)
-            .service(cancel_job_api)
             .service(activate_account_api)
             .service(deactivate_account_api)
             .service(migrate_preferences_api)
             .service(migrate_plc_api)
             .service(get_service_auth_api)
             .service(health_check)
-            .service(long_health_check)
             .service(
                 SwaggerUi::new("/swagger-ui/{_:.*}")
                     .url("/api-docs/openapi.json", ApiDoc::openapi()),
@@ -176,9 +166,6 @@ mod tests {
                 .service(create_account_api)
                 .service(export_pds_api)
                 .service(import_pds_api)
-                .service(missing_blobs_api)
-                .service(export_blobs_api)
-                .service(upload_blobs_api)
                 .service(activate_account_api)
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)

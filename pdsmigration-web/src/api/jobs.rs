@@ -1,131 +1,15 @@
-use crate::api::{ExportBlobsApiRequest, UploadBlobsApiRequest};
 use crate::background_jobs::{JobManager, JobRecord};
-use crate::config::AppConfig;
-use crate::errors::{ApiError, ApiErrorBody};
-use crate::{post, Json};
+use crate::errors::ApiError;
 use actix_web::{get, web, HttpResponse};
-use pdsmigration_common::{ExportBlobsRequest, UploadBlobsRequest};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+/// Response returned by all endpoints that enqueue a background job.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct EnqueueJobResponse {
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
     pub job_id: String,
-}
-
-#[utoipa::path(
-    post,
-    path = "/jobs/export-blobs",
-    request_body = ExportBlobsApiRequest,
-    responses(
-        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
-        (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
-        (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
-        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs, req))]
-#[post("/jobs/export-blobs")]
-pub async fn enqueue_export_blobs_job_api(
-    jobs: web::Data<JobManager>,
-    req: Json<ExportBlobsApiRequest>,
-) -> Result<HttpResponse, ApiError> {
-    let req_inner = req.into_inner();
-    let did = req_inner.did.clone();
-    tracing::info!("[{}] Enqueueing export-blobs job", did);
-    let id = jobs
-        .spawn_export_blobs(ExportBlobsRequest::from(req_inner))
-        .await?;
-    tracing::info!("[{}] Enqueued export-blobs job {}", did, id);
-    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
-        job_id: id.to_string(),
-    }))
-}
-
-#[utoipa::path(
-    post,
-    path = "/jobs/upload-blobs",
-    request_body = UploadBlobsApiRequest,
-    responses(
-        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
-        (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
-        (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
-        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs, req, config))]
-#[post("/jobs/upload-blobs")]
-pub async fn enqueue_upload_blobs_job_api(
-    jobs: web::Data<JobManager>,
-    config: web::Data<AppConfig>,
-    req: Json<UploadBlobsApiRequest>,
-) -> Result<HttpResponse, ApiError> {
-    let req_inner = req.into_inner();
-    let did = req_inner.did.clone();
-    tracing::info!("[{}] Enqueueing upload-blobs job", did);
-    let id = jobs
-        .spawn_upload_blobs(
-            UploadBlobsRequest::from(req_inner),
-            config.server.concurrent_tasks_per_job,
-        )
-        .await?;
-    tracing::info!("[{}] Enqueued upload-blobs job {}", did, id);
-    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
-        job_id: id.to_string(),
-    }))
-}
-
-#[utoipa::path(
-    get,
-    path = "/jobs",
-    responses(
-        (status = 200, description = "List jobs", body = [JobRecord], content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs))]
-#[get("/jobs")]
-pub async fn list_jobs_api(jobs: web::Data<JobManager>) -> Result<HttpResponse, ApiError> {
-    let list = jobs.list().await;
-    Ok(HttpResponse::Ok().json(list))
-}
-
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct CancelJobResponse {
-    pub success: bool,
-}
-
-#[utoipa::path(
-    post,
-    path = "/jobs/{id}/cancel",
-    params(("id" = String, Path, description = "Job ID (UUID)")),
-    responses(
-        (status = 200, description = "Cancel job result", body = CancelJobResponse, content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs))]
-#[post("/jobs/{id}/cancel")]
-pub async fn cancel_job_api(
-    jobs: web::Data<JobManager>,
-    path: web::Path<(Uuid,)>,
-) -> Result<HttpResponse, ApiError> {
-    let id = path.into_inner().0;
-    tracing::info!("Cancelling job {}", id);
-    let success = jobs.cancel(id).await;
-    if success {
-        tracing::info!("Cancelled job {}", id);
-    } else {
-        tracing::warn!(
-            "Cancel requested for unknown or already-finished job {}",
-            id
-        );
-    }
-    Ok(HttpResponse::Ok().json(CancelJobResponse { success }))
 }
 
 #[utoipa::path(

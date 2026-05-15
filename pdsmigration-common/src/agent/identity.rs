@@ -1,7 +1,6 @@
-use crate::agent::types::{GetRecommendedResponse, RecommendedDidOutputData};
+use crate::agent::types::RecommendedDidOutputData;
 use crate::{
     MigrationError, SignPlcOperationInput, SubmitPlcOperationInput, SubmitPlcOperationInputData,
-    GET_RECOMMENDED_DID_CREDENTIALS_PATH,
 };
 use bsky_sdk::api::com::atproto::identity::sign_plc_operation::InputData;
 use bsky_sdk::api::types::Unknown;
@@ -102,47 +101,6 @@ pub async fn request_token(agent: &BskyAgent) -> Result<(), MigrationError> {
             tracing::error!("[{}] Failed to request token: {:?}", did_str, e);
             Err(MigrationError::Runtime {
                 message: e.to_string(),
-            })
-        }
-    }
-}
-
-#[tracing::instrument(skip(access_token))]
-pub async fn get_recommended(
-    pds_host: &str,
-    access_token: &str,
-) -> Result<GetRecommendedResponse, MigrationError> {
-    let client = reqwest::Client::new();
-    let result = client
-        .get(pds_host.to_string() + GET_RECOMMENDED_DID_CREDENTIALS_PATH)
-        .bearer_auth(access_token)
-        .send()
-        .await;
-    match result {
-        Ok(output) => match output.status() {
-            reqwest::StatusCode::OK => {
-                tracing::info!("Successfully Fetched Recommended account");
-                output
-                    .json::<GetRecommendedResponse>()
-                    .await
-                    .map_err(|error| {
-                        tracing::error!("Error fetching recommended account: {:?}", error);
-                        MigrationError::Upstream {
-                            message: error.to_string(),
-                        }
-                    })
-            }
-            _ => {
-                tracing::error!("Error fetching recommended account: {:?}", output);
-                Err(MigrationError::Upstream {
-                    message: "Error fetching recommended account".to_string(),
-                })
-            }
-        },
-        Err(e) => {
-            tracing::error!("Error fetching recommended: {:?}", e);
-            Err(MigrationError::Upstream {
-                message: "Error fetching recommended".to_string(),
             })
         }
     }

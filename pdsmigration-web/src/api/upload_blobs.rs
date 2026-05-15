@@ -1,8 +1,11 @@
+use crate::api::EnqueueJobResponse;
+use crate::background_jobs::JobManager;
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
-use actix_web::HttpResponse;
-use pdsmigration_common::{MigrationError, UploadBlobsRequest, REDACTED};
+use crate::Json;
+use actix_web::{web, HttpResponse};
+use pdsmigration_common::{UploadBlobsRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -39,43 +42,36 @@ impl From<UploadBlobsApiRequest> for UploadBlobsRequest {
 
 #[utoipa::path(
     post,
-    path = "/upload-blobs",
+    path = "/jobs/upload-blobs",
     request_body = UploadBlobsApiRequest,
     responses(
-        (status = 200, description = "Upload exported blobs successful"),
+        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
         (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
         (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
-        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json")
+        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
-#[post("/upload-blobs")]
-pub async fn upload_blobs_api(req: Json<UploadBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
-    let req = req.into_inner();
-    let did = req.did.clone();
-    tracing::info!("[{}] Upload blobs request received", did);
-    pdsmigration_common::upload_blobs_api(req.into())
-        .await
-        .map_err(|e| {
-            tracing::error!("[{}] Failed to upload blobs: {}", did, e);
-            match e {
-                MigrationError::Validation { .. } => ApiError::Runtime {
-                    message: "Unexpected error occurred".to_string(),
-                },
-                MigrationError::Upstream { .. } => ApiError::Runtime {
-                    message: "Unexpected error occurred".to_string(),
-                },
-                MigrationError::Runtime { .. } => ApiError::Runtime {
-                    message: "Unexpected error occurred".to_string(),
-                },
-                MigrationError::RateLimitReached => ApiError::Runtime {
-                    message: "Unexpected error occurred".to_string(),
-                },
-                MigrationError::Authentication { message } => ApiError::Authentication { message },
-            }
-        })?;
-    Ok(HttpResponse::Ok().finish())
+#[tracing::instrument(skip(jobs, req, config))]
+#[post("/jobs/upload-blobs")]
+pub async fn enqueue_upload_blobs_job_api(
+    jobs: web::Data<JobManager>,
+    config: web::Data<AppConfig>,
+    req: Json<UploadBlobsApiRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Enqueueing upload-blobs job", did);
+    let id = jobs
+        .spawn_upload_blobs(
+            UploadBlobsRequest::from(req_inner),
+            config.server.concurrent_tasks_per_job,
+        )
+        .await?;
+    tracing::info!("[{}] Enqueued upload-blobs job {}", did, id);
+    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
+        job_id: id.to_string(),
+    }))
 }
 
 #[cfg(test)]

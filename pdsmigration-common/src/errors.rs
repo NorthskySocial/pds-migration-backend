@@ -173,7 +173,7 @@ mod tests {
             .respond_with(
                 ResponseTemplate::new(400)
                     .set_body_string("{invalid json content}")
-                    .insert_header("content-type", "application/json"),
+                    .insert_header("content-type", crate::APPLICATION_JSON),
             )
             .mount(&mock_server)
             .await;
