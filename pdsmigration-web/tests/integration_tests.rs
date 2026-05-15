@@ -2,10 +2,9 @@ use actix_web::{http::StatusCode, test, web, App};
 use pdsmigration_web::{
     api::{
         activate_account_api, cancel_job_api, create_account_api, deactivate_account_api,
-        enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_blobs_api,
-        export_pds_api, get_job_api, get_service_auth_api, health_check, import_pds_api,
-        list_jobs_api, migrate_plc_api, migrate_preferences_api, missing_blobs_api,
-        request_token_api, upload_blobs_api,
+        enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
+        get_service_auth_api, health_check, import_pds_api, list_jobs_api, migrate_plc_api,
+        migrate_preferences_api, missing_blobs_api, request_token_api,
     },
     background_jobs::JobManager,
     config::{AppConfig, ExternalServices, ServerConfig},
@@ -56,24 +55,29 @@ mod integration_tests {
     #[actix_rt::test]
     async fn test_all_routes_configured() {
         let app_config = create_test_config();
+        let job_manager = web::Data::new(JobManager::new());
 
         // Test that we can create an app with all routes without errors
         let _app = test::init_service(
             App::new()
                 .app_data(web::Data::new(app_config))
+                .app_data(job_manager)
                 .service(health_check)
                 .service(request_token_api)
                 .service(create_account_api)
                 .service(export_pds_api)
                 .service(import_pds_api)
                 .service(missing_blobs_api)
-                .service(export_blobs_api)
-                .service(upload_blobs_api)
                 .service(activate_account_api)
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)
                 .service(migrate_plc_api)
-                .service(get_service_auth_api),
+                .service(get_service_auth_api)
+                .service(enqueue_export_blobs_job_api)
+                .service(enqueue_upload_blobs_job_api)
+                .service(list_jobs_api)
+                .service(get_job_api)
+                .service(cancel_job_api),
         )
         .await;
     }
@@ -171,46 +175,6 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/missing-blobs")
-            .set_json(&json!({}))
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[actix_rt::test]
-    async fn test_export_blobs_missing_fields() {
-        let app_config = create_test_config();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .service(export_blobs_api),
-        )
-        .await;
-
-        let req = test::TestRequest::post()
-            .uri("/export-blobs")
-            .set_json(&json!({}))
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[actix_rt::test]
-    async fn test_upload_blobs_missing_fields() {
-        let app_config = create_test_config();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .service(upload_blobs_api),
-        )
-        .await;
-
-        let req = test::TestRequest::post()
-            .uri("/upload-blobs")
             .set_json(&json!({}))
             .to_request();
 
