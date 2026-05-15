@@ -1,7 +1,10 @@
-use crate::{build_agent, login_helper, recommended_plc, sign_plc, submit_plc, MigrationError};
+use crate::{
+    build_agent, login_helper, recommended_plc, sign_plc, submit_plc, MigrationError, REDACTED,
+};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct MigratePlcRequest {
     pub destination: String,
     pub destination_token: String,
@@ -13,7 +16,24 @@ pub struct MigratePlcRequest {
     pub user_recovery_key: Option<String>,
 }
 
-#[tracing::instrument(skip(req))]
+impl fmt::Debug for MigratePlcRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MigratePlcRequest")
+            .field("destination", &self.destination)
+            .field("destination_token", &REDACTED)
+            .field("origin", &self.origin)
+            .field("did", &self.did)
+            .field("origin_token", &REDACTED)
+            .field("plc_signing_token", &REDACTED)
+            .field(
+                "user_recovery_key",
+                &self.user_recovery_key.as_ref().map(|_| REDACTED),
+            )
+            .finish()
+    }
+}
+
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 pub async fn migrate_plc_api(req: MigratePlcRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!(
@@ -74,4 +94,44 @@ pub async fn migrate_plc_api(req: MigratePlcRequest) -> Result<(), MigrationErro
     submit_plc(&agent, output).await?;
     tracing::info!("[{}] PLC migration completed successfully", did);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_request(user_recovery_key: Option<String>) -> MigratePlcRequest {
+        MigratePlcRequest {
+            destination: "https://dst.example.com".to_string(),
+            destination_token: "dst-secret".to_string(),
+            origin: "https://src.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            origin_token: "src-secret".to_string(),
+            plc_signing_token: "plc-signing-secret".to_string(),
+            user_recovery_key,
+        }
+    }
+
+    #[test]
+    fn migrate_plc_request_redacts_all_secrets() {
+        let req = sample_request(Some("recovery-secret".to_string()));
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        for secret in [
+            "dst-secret",
+            "src-secret",
+            "plc-signing-secret",
+            "recovery-secret",
+        ] {
+            assert!(!dbg.contains(secret), "leaked secret: {secret}");
+        }
+    }
+
+    #[test]
+    fn migrate_plc_request_with_no_recovery_key_still_safe() {
+        let req = sample_request(None);
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(dbg.contains("None"));
+    }
 }

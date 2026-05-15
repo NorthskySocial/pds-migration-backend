@@ -35,6 +35,8 @@ pub use request_token::*;
 pub use service_auth::*;
 pub use upload_blobs::*;
 
+pub const REDACTED: &str = "[REDACTED]";
+
 #[derive(Deserialize, Serialize)]
 pub struct GetRepoRequest {
     pub did: Did,
@@ -45,7 +47,7 @@ impl std::fmt::Debug for GetRepoRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GetRepoRequest")
             .field("did", &self.did)
-            .field("token", &"[REDACTED]")
+            .field("token", &REDACTED)
             .finish()
     }
 }
@@ -185,5 +187,17 @@ mod tests {
         let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
         let path = did_blobs_path(&did).expect("cwd should be readable in tests");
         assert_eq!(path, cwd.join("did-plc-abc123"));
+    }
+
+    #[test]
+    fn get_repo_request_redacts_token() {
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        let req = GetRepoRequest {
+            did,
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
     }
 }

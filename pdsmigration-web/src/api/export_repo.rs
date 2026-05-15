@@ -2,12 +2,13 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::{did_to_car_filename, ExportPDSRequest};
+use pdsmigration_common::{did_to_car_filename, ExportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fmt;
 use utoipa::ToSchema;
 
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Deserialize, Serialize, ToSchema)]
 pub struct ExportPDSApiRequest {
     #[schema(example = "https://pds.example.com")]
     pub pds_host: String,
@@ -15,6 +16,16 @@ pub struct ExportPDSApiRequest {
     pub did: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub token: String,
+}
+
+impl fmt::Debug for ExportPDSApiRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExportPDSApiRequest")
+            .field("pds_host", &self.pds_host)
+            .field("did", &self.did)
+            .field("token", &REDACTED)
+            .finish()
+    }
 }
 
 impl From<ExportPDSApiRequest> for ExportPDSRequest {
@@ -39,7 +50,7 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/export-repo")]
 pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
@@ -138,4 +149,21 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         did
     );
     Ok(HttpResponse::Ok().finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_repo_api_request_redacts_token() {
+        let req = ExportPDSApiRequest {
+            pds_host: "https://pds.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            token: "supersecret-jwt".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("supersecret-jwt"));
+    }
 }

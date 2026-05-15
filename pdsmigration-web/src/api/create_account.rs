@@ -2,7 +2,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::{create_account, CreateAccountRequest};
+use pdsmigration_common::{create_account, CreateAccountRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -33,14 +33,14 @@ impl fmt::Debug for CreateAccountApiRequest {
         f.debug_struct("CreateAccountApiRequest")
             .field("email", &self.email)
             .field("handle", &self.handle)
-            .field("invite_code", &"[REDACTED]")
-            .field("password", &"[REDACTED]")
-            .field("token", &"[REDACTED]")
+            .field("invite_code", &self.invite_code)
+            .field("password", &REDACTED)
+            .field("token", &REDACTED)
             .field("pds_host", &self.pds_host)
             .field("did", &self.did)
             .field(
                 "recovery_key",
-                &self.recovery_key.as_ref().map(|_| "[REDACTED]"),
+                &self.recovery_key.as_ref().map(|_| REDACTED),
             )
             .finish()
     }
@@ -113,4 +113,31 @@ pub async fn create_account_api(
         req.invite_code
     );
     Ok(HttpResponse::Ok().finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_account_api_request_redacts_secrets() {
+        let req = CreateAccountApiRequest {
+            email: "user@example.com".to_string(),
+            handle: "alice.test".to_string(),
+            invite_code: "test-invite-code".to_string(),
+            password: "password-secret".to_string(),
+            token: "token-secret".to_string(),
+            pds_host: "https://pds.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            recovery_key: Some("recovery-secret".to_string()),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        for secret in ["password-secret", "token-secret", "recovery-secret"] {
+            assert!(!dbg.contains(secret), "leaked secret: {secret}");
+        }
+        assert!(dbg.contains("test-invite-code"));
+        assert!(dbg.contains("user@example.com"));
+        assert!(dbg.contains("alice.test"));
+    }
 }

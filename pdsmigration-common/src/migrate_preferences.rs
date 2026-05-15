@@ -1,7 +1,10 @@
-use crate::{build_agent, export_preferences, import_preferences, login_helper, MigrationError};
+use crate::{
+    build_agent, export_preferences, import_preferences, login_helper, MigrationError, REDACTED,
+};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct MigratePreferencesRequest {
     pub destination: String,
     pub destination_token: String,
@@ -10,7 +13,19 @@ pub struct MigratePreferencesRequest {
     pub origin_token: String,
 }
 
-#[tracing::instrument]
+impl fmt::Debug for MigratePreferencesRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MigratePreferencesRequest")
+            .field("destination", &self.destination)
+            .field("destination_token", &REDACTED)
+            .field("origin", &self.origin)
+            .field("did", &self.did)
+            .field("origin_token", &REDACTED)
+            .finish()
+    }
+}
+
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 pub async fn migrate_preferences_api(req: MigratePreferencesRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!(
@@ -41,4 +56,26 @@ pub async fn migrate_preferences_api(req: MigratePreferencesRequest) -> Result<(
     import_preferences(&agent, preferences).await?;
     tracing::info!("[{}] Preferences migration completed successfully", did);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_preferences_request_redacts_both_tokens() {
+        let req = MigratePreferencesRequest {
+            destination: "https://dst.example.com".to_string(),
+            destination_token: "dst-secret".to_string(),
+            origin: "https://src.example.com".to_string(),
+            did: "did:plc:abc123".to_string(),
+            origin_token: "src-secret".to_string(),
+        };
+        let dbg = format!("{:?}", req);
+        assert!(dbg.contains(REDACTED));
+        assert!(!dbg.contains("dst-secret"));
+        assert!(!dbg.contains("src-secret"));
+        assert!(dbg.contains("https://dst.example.com"));
+        assert!(dbg.contains("https://src.example.com"));
+    }
 }
