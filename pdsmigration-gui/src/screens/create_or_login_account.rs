@@ -3,7 +3,7 @@ use crate::errors::GuiError;
 use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::{
-    check_did_exists, create_account, fetch_tos_and_privacy_policy, styles,
+    check_did_exists, create_account, fetch_tos_and_privacy_policy, normalize_pds_host, styles,
     CreateAccountParameters, ScreenType,
 };
 use bsky_sdk::BskyAgent;
@@ -77,7 +77,18 @@ impl CreateOrLoginAccount {
             let value = lock.blocking_read();
             value.clone()
         };
-        let did = pds_session.did().clone().unwrap();
+        let did = match pds_session.did().clone() {
+            Some(did) => did,
+            None => {
+                tracing::error!("No active session DID; please log in to your current PDS first");
+                let mut errors = self.error.blocking_write();
+                errors.push(GuiError::Other);
+                let mut ui_mode_write = self.ui_mode.blocking_write();
+                *ui_mode_write = UiMode::SelectPds;
+                self.pds_selected = false;
+                return;
+            }
+        };
         tokio::spawn(async move {
             match check_did_exists(new_pds_host.as_str(), did.as_str()).await {
                 Ok(res) => {
@@ -185,6 +196,9 @@ impl CreateOrLoginAccount {
                 Some("https://northsky.social"),
             );
             styles::render_button(ui, ctx, "Update", || {
+                if normalize_pds_host(&mut self.new_pds_host).is_err() {
+                    return;
+                }
                 self.pds_selected = true;
                 self.update_pds();
             });
@@ -192,39 +206,32 @@ impl CreateOrLoginAccount {
     }
 
     #[tracing::instrument(skip(self))]
-    fn validate_create_inputs(&self) -> bool {
-        if self.new_password != self.confirm_password {
-            tracing::error!("Passwords do not match");
-            return false;
-        }
+    fn validate_create_inputs(&mut self) -> bool {
+        self.new_email = self.new_email.trim().to_string();
+        self.new_handle = self.new_handle.trim().to_string();
+        self.invite_code = self.invite_code.trim().to_string();
         if self.new_password.is_empty() {
             tracing::error!("Password cannot be empty");
             return false;
         }
+        if self.new_password != self.confirm_password {
+            tracing::error!("Passwords do not match");
+            return false;
+        }
         if self.new_handle.is_empty() {
             tracing::error!("Handle cannot be empty");
+            return false;
         }
         if self.new_email.is_empty() {
             tracing::error!("Email cannot be empty");
             return false;
         }
-        if self.new_pds_host.is_empty() {
-            tracing::error!("PDS Host cannot be empty");
+        if !self.new_email.contains('@') || !self.new_email.contains('.') {
+            tracing::error!("Email does not look valid");
             return false;
         }
-        match reqwest::Url::parse(self.new_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
+        if normalize_pds_host(&mut self.new_pds_host).is_err() {
+            return false;
         }
 
         let invite_code_required = {
@@ -270,6 +277,9 @@ impl CreateOrLoginAccount {
                         Some("https://northsky.social"),
                     );
                     styles::render_button(ui, ctx, "Update", || {
+                        if normalize_pds_host(&mut self.new_pds_host).is_err() {
+                            return;
+                        }
                         self.pds_selected = true;
                         self.update_pds();
                     });
@@ -316,7 +326,7 @@ impl CreateOrLoginAccount {
                     value.unwrap_or("".to_string())
                 };
                 let terms_of_service = {
-                    let terms_of_service = self.privacy_policy_lock.blocking_read().clone();
+                    let terms_of_service = self.terms_of_service_lock.blocking_read().clone();
                     let value = terms_of_service.clone();
                     value.unwrap_or("".to_string())
                 };
@@ -411,32 +421,18 @@ impl CreateOrLoginAccount {
     }
 
     #[tracing::instrument(skip(self))]
-    fn validate_login_inputs(&self) -> bool {
-        let new_pds_host = self.new_pds_host.to_string();
-        let new_handle = self.new_handle.to_string();
-        let new_password = self.new_password.to_string();
-
-        match reqwest::Url::parse(new_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
+    fn validate_login_inputs(&mut self) -> bool {
+        if normalize_pds_host(&mut self.new_pds_host).is_err() {
+            return false;
         }
+        self.new_handle = self.new_handle.trim().to_string();
 
-        if new_handle.is_empty() {
+        if self.new_handle.is_empty() {
             tracing::error!("Handle cannot be empty");
             return false;
         }
 
-        if new_password.is_empty() {
+        if self.new_password.is_empty() {
             tracing::error!("Password cannot be empty");
             return false;
         }
@@ -729,5 +725,148 @@ mod tests {
         assert_eq!(params.new_password, "password");
         assert_eq!(params.new_handle, "handle.test.com");
         assert_eq!(params.invite_code, "invite123");
+    }
+
+    fn make_account() -> CreateOrLoginAccount {
+        CreateOrLoginAccount::new(
+            create_test_session(),
+            create_test_errors(),
+            create_test_page(),
+            create_test_migration_step(),
+        )
+    }
+
+    fn fill_valid_create_inputs(account: &mut CreateOrLoginAccount) {
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_email = "user@example.com".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        account.confirm_password = "hunter2".to_string();
+    }
+
+    #[test]
+    fn validate_create_inputs_accepts_valid_inputs() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        assert!(account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_password() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_password = "".to_string();
+        account.confirm_password = "".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_password_mismatch() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.confirm_password = "different".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_handle() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_handle = "   ".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_email() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_email = "   ".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_email_without_at_or_dot() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_email = "not-an-email".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_rejects_empty_pds_host() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_pds_host = "".to_string();
+        assert!(!account.validate_create_inputs());
+    }
+
+    #[test]
+    fn validate_create_inputs_trims_text_fields() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_email = "  user@example.com  ".to_string();
+        account.new_handle = "  user.northsky.social  ".to_string();
+        account.invite_code = "  ABC-123  ".to_string();
+        account.new_password = "hunter2".to_string();
+        account.confirm_password = "hunter2".to_string();
+        assert!(account.validate_create_inputs());
+        assert_eq!(account.new_email, "user@example.com");
+        assert_eq!(account.new_handle, "user.northsky.social");
+        assert_eq!(account.invite_code, "ABC-123");
+    }
+
+    #[test]
+    fn validate_create_inputs_normalizes_pds_host() {
+        let mut account = make_account();
+        fill_valid_create_inputs(&mut account);
+        account.new_pds_host = "northsky.social".to_string();
+        assert!(account.validate_create_inputs());
+        assert_eq!(account.new_pds_host, "https://northsky.social");
+    }
+
+    #[test]
+    fn validate_login_inputs_accepts_valid_inputs() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_pds_host() {
+        let mut account = make_account();
+        account.new_handle = "user.northsky.social".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(!account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_handle() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "   ".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(!account.validate_login_inputs());
+        assert_eq!(account.new_handle, "");
+    }
+
+    #[test]
+    fn validate_login_inputs_rejects_empty_password() {
+        let mut account = make_account();
+        account.new_pds_host = "https://northsky.social".to_string();
+        account.new_handle = "user.northsky.social".to_string();
+        assert!(!account.validate_login_inputs());
+    }
+
+    #[test]
+    fn validate_login_inputs_normalizes_host_and_trims_handle() {
+        let mut account = make_account();
+        account.new_pds_host = "northsky.social".to_string();
+        account.new_handle = "  user.northsky.social  ".to_string();
+        account.new_password = "hunter2".to_string();
+        assert!(account.validate_login_inputs());
+        assert_eq!(account.new_pds_host, "https://northsky.social");
+        assert_eq!(account.new_handle, "user.northsky.social");
     }
 }

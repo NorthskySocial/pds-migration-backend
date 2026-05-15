@@ -119,6 +119,7 @@ impl PdsMigrationApp {
         // Left side panel for navigation buttons (arranged top-down)
         egui::SidePanel::left("side_panel")
             .default_width(100.0)
+            .width_range(80.0..=300.0)
             .show(ctx, |ui| {
                 ui.add_space(20.0);
                 ui.vertical_centered_justified(|ui| {
@@ -160,6 +161,7 @@ impl PdsMigrationApp {
         TopBottomPanel::bottom("log_viewer_panel")
             .resizable(true)
             .default_height(200.0)
+            .height_range(80.0..=600.0)
             .show(ctx, |ui| {
                 ui.heading("Log Viewer");
                 self.show_log_viewer(ui);
@@ -169,7 +171,11 @@ impl PdsMigrationApp {
     fn show_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             styles::set_text_color(ui);
-            self.current_screen.ui(ui, ctx);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    self.current_screen.ui(ui, ctx);
+                });
         });
     }
 
@@ -322,7 +328,7 @@ impl eframe::App for PdsMigrationApp {
         self.check_for_errors(ctx);
         self.update_current_screen();
         self.show_side_panel(ctx);
-        self.show_central_panel(ctx);
         self.show_bottom_panel(ctx);
+        self.show_central_panel(ctx);
     }
 }

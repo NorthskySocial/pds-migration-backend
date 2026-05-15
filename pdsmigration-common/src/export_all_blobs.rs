@@ -64,6 +64,7 @@ pub async fn export_all_blobs_api(
     tracing::info!("[{}] Starting export of all blobs from {}", did, req.origin);
     let blobs = list_all_blobs(&agent).await?;
     let path = did_blobs_path(did)?;
+    tracing::info!("[{}] Writing blobs to {}", did, path.display());
     match tokio::fs::create_dir(path.as_path()).await {
         Ok(_) => {}
         Err(e) => {

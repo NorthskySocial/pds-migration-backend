@@ -3,7 +3,7 @@ use crate::errors::GuiError;
 use crate::screens::Screen;
 use crate::session::session_config::PdsSession;
 use crate::styles::WIDGET_SPACING_BASE;
-use crate::{styles, ScreenType};
+use crate::{normalize_pds_host, styles, ScreenType};
 use bsky_sdk::BskyAgent;
 use egui::Ui;
 use std::sync::Arc;
@@ -161,32 +161,18 @@ impl OldLogin {
         });
     }
 
-    fn validate_inputs(&self) -> bool {
-        let old_pds_host = self.old_pds_host.to_string();
-        let username = self.username.to_string();
-        let password = self.password.to_string();
-
-        match reqwest::Url::parse(old_pds_host.as_str()) {
-            Ok(url) if url.scheme() == "https" && url.host_str().is_some() => {}
-            Ok(_) => {
-                tracing::error!("PDS host must use HTTPS protocol");
-                return false;
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Invalid URL format. PDS host must use HTTPS protocol: {}",
-                    e
-                );
-                return false;
-            }
+    fn validate_inputs(&mut self) -> bool {
+        if normalize_pds_host(&mut self.old_pds_host).is_err() {
+            return false;
         }
+        self.username = self.username.trim().to_string();
 
-        if username.is_empty() {
+        if self.username.is_empty() {
             tracing::error!("Username cannot be empty");
             return false;
         }
 
-        if password.is_empty() {
+        if self.password.is_empty() {
             tracing::error!("Password cannot be empty");
             return false;
         }
@@ -238,6 +224,11 @@ impl Screen for OldLogin {
                 );
                 ui.add_space(WIDGET_SPACING_BASE);
                 styles::render_button(ui, ctx, "Submit", || {
+                    self.email_token = self.email_token.trim().to_string();
+                    if self.email_token.is_empty() {
+                        tracing::error!("Email token cannot be empty");
+                        return;
+                    }
                     self.confirm_email_token();
                 });
             });
@@ -246,5 +237,64 @@ impl Screen for OldLogin {
 
     fn name(&self) -> ScreenType {
         ScreenType::OldLogin
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_login() -> OldLogin {
+        OldLogin::new(
+            Arc::new(RwLock::new(PdsSession::default())),
+            Arc::new(RwLock::new(Vec::new())),
+            Arc::new(RwLock::new(ScreenType::OldLogin)),
+        )
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_pds_host() {
+        let mut login = make_login();
+        login.username = "user.bsky.social".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_username() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_rejects_whitespace_only_username() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.username = "   \t  ".to_string();
+        login.password = "hunter2".to_string();
+        assert!(!login.validate_inputs());
+        // Should have been trimmed before the empty check ran.
+        assert_eq!(login.username, "");
+    }
+
+    #[test]
+    fn validate_inputs_rejects_empty_password() {
+        let mut login = make_login();
+        login.old_pds_host = "https://bsky.social".to_string();
+        login.username = "user.bsky.social".to_string();
+        assert!(!login.validate_inputs());
+    }
+
+    #[test]
+    fn validate_inputs_accepts_valid_inputs_and_normalizes_host() {
+        let mut login = make_login();
+        login.old_pds_host = "bsky.social".to_string();
+        login.username = "  user.bsky.social  ".to_string();
+        login.password = "hunter2".to_string();
+        assert!(login.validate_inputs());
+        assert_eq!(login.old_pds_host, "https://bsky.social");
+        assert_eq!(login.username, "user.bsky.social");
     }
 }

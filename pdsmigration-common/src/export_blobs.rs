@@ -62,6 +62,7 @@ pub async fn export_blobs_api(
     let mut successful_blobs = Vec::new();
     let mut invalid_blobs = Vec::new();
     let path = did_blobs_path(did)?;
+    tracing::info!("[{}] Writing blobs to {}", did, path.display());
 
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(path.as_path()).await {
