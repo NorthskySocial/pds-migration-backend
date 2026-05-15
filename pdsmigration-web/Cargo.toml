@@ -30,14 +30,12 @@ aws-config = { version = "1.5.14", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.70.0"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0"
-prometheus = "0.14.0"
 actix-web-prom = "0.10.0"
 derive_more = { version = "2.0.1" }
 utoipa = { version = "5.4.0", features = ["actix_extras"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web", "debug-embed"] }
 futures-util = { version = "0.3.31" }
 futures = { version = "0.3.31" }
-actix-ws = "0.3.0"
 tokio = "1.48.0"
 uuid = { version = "1.10.0", features = ["v4", "serde"] }
 
