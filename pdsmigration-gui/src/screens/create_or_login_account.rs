@@ -185,6 +185,9 @@ impl CreateOrLoginAccount {
                 Some("https://northsky.social"),
             );
             styles::render_button(ui, ctx, "Update", || {
+                if normalize_pds_host(&mut self.new_pds_host).is_err() {
+                    return;
+                }
                 self.pds_selected = true;
                 self.update_pds();
             });
@@ -256,6 +259,9 @@ impl CreateOrLoginAccount {
                         Some("https://northsky.social"),
                     );
                     styles::render_button(ui, ctx, "Update", || {
+                        if normalize_pds_host(&mut self.new_pds_host).is_err() {
+                            return;
+                        }
                         self.pds_selected = true;
                         self.update_pds();
                     });
