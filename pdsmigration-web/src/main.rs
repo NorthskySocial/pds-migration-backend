@@ -6,10 +6,9 @@ mod middleware;
 mod openapi;
 
 use crate::api::{
-    activate_account_api, create_account_api, deactivate_account_api,
-    enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
-    get_service_auth_api, health_check, import_pds_api, migrate_plc_api, migrate_preferences_api,
-    request_token_api,
+    activate_account_api, create_account_api, deactivate_account_api, enqueue_export_blobs_job_api,
+    enqueue_upload_blobs_job_api, export_pds_api, get_job_api, get_service_auth_api, health_check,
+    import_pds_api, migrate_plc_api, migrate_preferences_api, request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
