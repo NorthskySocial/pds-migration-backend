@@ -17,7 +17,7 @@ pub async fn build_agent() -> Result<BskyAgent, MigrationError> {
         })
 }
 
-#[tracing::instrument(skip(agent, token))]
+#[tracing::instrument(skip(agent, token), fields(pds_host = %pds_host, did = %did))]
 pub async fn login_helper(
     agent: &BskyAgent,
     pds_host: &str,
@@ -46,7 +46,7 @@ pub async fn login_helper(
     {
         Ok(_) => Ok(agent.get_session().await.unwrap()),
         Err(error) => {
-            tracing::error!("[{}] Error while logging in: {}", did, error);
+            tracing::error!("[{}] Error while logging in to {}: {}", did, pds_host, error);
             match error {
                 Error::Authentication(_) => Err(MigrationError::Authentication {
                     message: error.to_string(),

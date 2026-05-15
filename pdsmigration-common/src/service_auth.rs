@@ -35,7 +35,7 @@ impl fmt::Debug for ServiceAuthResponse {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(aud = %req.aud, pds_host = %req.pds_host))]
 pub async fn get_service_auth_api(req: ServiceAuthRequest) -> Result<String, MigrationError> {
     let agent = build_agent().await?;
     login_helper(
