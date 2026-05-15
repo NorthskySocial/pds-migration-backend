@@ -277,14 +277,16 @@ impl LogViewer {
                                     hours, minutes, seconds, millis
                                 );
 
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
                                     ui.label(RichText::new(&timestamp).color(Color32::GRAY));
                                     ui.label(
                                         RichText::new(entry.level_prefix())
                                             .color(entry.level_color())
                                             .strong(),
                                     );
-                                    ui.label(&entry.message);
+                                    ui.label(egui::RichText::new(&entry.message))
+                                        .on_hover_text(&entry.message);
                                 });
                             }
                         }
