@@ -67,12 +67,30 @@ pub fn format_cid<T: std::fmt::Debug>(cid: &T) -> String {
         .unwrap_or(raw)
 }
 
+/// Resolve the downloads directory used to store exported repo CAR
+/// files and blob directories. We use the directory containing the
+/// running executable for the migration tool, or the current working
+/// directory as a fallback.
+/// Platform-specific: if we use `std::env::current_exe()` on macOS,
+/// the path would resolve to the user's home directory.
+pub fn downloads_dir() -> Result<std::path::PathBuf, MigrationError> {
+    match std::env::current_exe() {
+        Ok(exe_path) => match exe_path.parent() {
+            Some(parent) => Ok(parent.to_path_buf()),
+            None => std::env::current_dir().map_err(|e| MigrationError::Runtime {
+                message: e.to_string(),
+            }),
+        },
+        Err(_) => std::env::current_dir().map_err(|e| MigrationError::Runtime {
+            message: e.to_string(),
+        }),
+    }
+}
+
 /// Build the canonical on-disk directory path for a DID's blobs:
-/// `<current_dir>/<did-with-colons-replaced>`.
+/// `<downloads_dir>/<did-with-colons-replaced>`.
 pub fn did_blobs_path<D: AsRef<str>>(did: D) -> Result<std::path::PathBuf, MigrationError> {
-    let mut path = std::env::current_dir().map_err(|e| MigrationError::Runtime {
-        message: e.to_string(),
-    })?;
+    let mut path = downloads_dir()?;
     path.push(did_to_dirname(did));
     Ok(path)
 }
@@ -149,18 +167,19 @@ mod tests {
     }
 
     #[test]
-    fn did_blob_dir_appends_dirname_to_cwd() {
-        let cwd = std::env::current_dir().expect("cwd should be readable in tests");
-        let path = did_blobs_path("did:plc:abc123").expect("cwd should be readable in tests");
-        assert_eq!(path, cwd.join("did-plc-abc123"));
+    fn did_blobs_path_appends_dirname_to_base() {
+        let base = downloads_dir().expect("downloads dir should be readable in tests");
+        let path =
+            did_blobs_path("did:plc:abc123").expect("downloads dir should be readable in tests");
+        assert_eq!(path, base.join("did-plc-abc123"));
     }
 
     #[test]
-    fn did_blob_dir_accepts_did_type() {
-        let cwd = std::env::current_dir().expect("cwd should be readable in tests");
+    fn did_blobs_path_accepts_did_type() {
+        let base = downloads_dir().expect("downloads dir should be readable in tests");
         let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
-        let path = did_blobs_path(&did).expect("cwd should be readable in tests");
-        assert_eq!(path, cwd.join("did-plc-abc123"));
+        let path = did_blobs_path(&did).expect("downloads dir should be readable in tests");
+        assert_eq!(path, base.join("did-plc-abc123"));
     }
 
     #[test]
