@@ -44,6 +44,10 @@ reqwest = "0.12.22"
 env_logger = "0.11.8"
 tokio = { version = "1.43.1", features = ["rt-multi-thread", "time", "macros"] }
 
+# fallback to x11 on linux if wayland support is not available
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.30", features = ["x11"] }
+
 [dev-dependencies]
 mockall = "0.13.0"
 tokio-test = "0.4.4"

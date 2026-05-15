@@ -793,15 +793,34 @@ pub fn run() -> eframe::Result {
         eframe::icon_data::from_png_bytes(include_bytes!("../assets/Northsky-Icon_Color.png"))
             .expect("The icon data must be valid");
 
+    let viewport = egui::ViewportBuilder {
+        icon: Some(Arc::new(icon_data)),
+        min_inner_size: Some(egui::vec2(900.0, 600.0)),
+        inner_size: Some(egui::vec2(1280.0, 800.0)),
+        ..Default::default()
+    };
+
+    // On Linux, WWayland is used as the default window backend,
+    // but if it's not available, we fallback to X11.
+    #[cfg(target_os = "linux")]
+    let event_loop_builder: Option<eframe::EventLoopBuilderHook> = {
+        let in_wayland_session = std::env::var("WAYLAND_DISPLAY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if !in_wayland_session {
+            Some(Box::new(|builder| {
+                use winit::platform::x11::EventLoopBuilderExtX11;
+                builder.with_x11();
+            }))
+        } else {
+            None
+        }
+    };
+
     let options = eframe::NativeOptions {
-        viewport: {
-            egui::ViewportBuilder {
-                icon: Some(Arc::new(icon_data)),
-                min_inner_size: Some(egui::vec2(900.0, 600.0)),
-                inner_size: Some(egui::vec2(1280.0, 800.0)),
-                ..Default::default()
-            }
-        },
+        viewport,
+        #[cfg(target_os = "linux")]
+        event_loop_builder,
         ..Default::default()
     };
 
