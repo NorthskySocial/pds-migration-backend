@@ -1,4 +1,4 @@
-use crate::{did_to_car_filename, GetRepoRequest, MigrationError};
+use crate::{did_to_car_filename, GetRepoRequest, MigrationError, APPLICATION_JSON};
 use bsky_sdk::api::types::string::Did;
 use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
@@ -15,7 +15,7 @@ pub async fn download_repo(
     let result = client
         .get(url)
         .query(&[("did", request.did.as_str().to_string())])
-        .header("Content-Type", "application/json")
+        .header("Content-Type", APPLICATION_JSON)
         .bearer_auth(request.token.clone())
         .send()
         .await;

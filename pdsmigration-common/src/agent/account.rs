@@ -1,6 +1,7 @@
 use crate::{
     try_parse_error_response, CreateAccountInput, CreateAccountInputData, CreateAccountRequest,
-    DeactivatedAccountInput, DeactivatedAccountInputData, MigrationError, CREATE_ACCOUNT_PATH,
+    DeactivatedAccountInput, DeactivatedAccountInputData, MigrationError, APPLICATION_JSON,
+    CREATE_ACCOUNT_PATH,
 };
 use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
@@ -39,7 +40,7 @@ pub async fn create_account(
     let mut request_builder = client
         .post(pds_host.to_string() + CREATE_ACCOUNT_PATH)
         .body(request_body)
-        .header("Content-Type", "application/json");
+        .header("Content-Type", APPLICATION_JSON);
 
     if let Some(token) = &account_request.token {
         request_builder = request_builder.bearer_auth(token);

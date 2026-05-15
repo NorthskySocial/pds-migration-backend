@@ -1,6 +1,4 @@
 use bsky_sdk::api::types::string::Did;
-use multibase::Base::Base58Btc;
-use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
 mod activate_account;
@@ -36,6 +34,7 @@ pub use service_auth::*;
 pub use upload_blobs::*;
 
 pub const REDACTED: &str = "[REDACTED]";
+pub const APPLICATION_JSON: &str = "application/json";
 
 #[derive(Deserialize, Serialize)]
 pub struct GetRepoRequest {

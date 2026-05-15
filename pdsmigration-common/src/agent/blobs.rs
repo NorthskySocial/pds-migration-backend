@@ -1,6 +1,6 @@
 use crate::{
     GetBlobParams, GetBlobParamsData, GetBlobRequest, ListBlobsParams, ListBlobsParamsData,
-    ListMissingBlobsParams, ListMissingBlobsParamsData, MigrationError,
+    ListMissingBlobsParams, ListMissingBlobsParamsData, MigrationError, APPLICATION_JSON,
 };
 use bsky_sdk::api::com::atproto::repo::list_missing_blobs::RecordBlob;
 use bsky_sdk::api::types::string::{Cid, Did};
@@ -248,7 +248,7 @@ pub async fn download_blob(
             ("did", request.did.as_str().to_string()),
             ("cid", request.cid.clone()),
         ])
-        .header("Content-Type", "application/json")
+        .header("Content-Type", APPLICATION_JSON)
         .bearer_auth(request.token.clone())
         .send()
         .await;

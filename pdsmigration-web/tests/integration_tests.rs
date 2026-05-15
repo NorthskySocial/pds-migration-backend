@@ -9,6 +9,7 @@ use pdsmigration_web::{
     },
     background_jobs::JobManager,
     config::{AppConfig, ExternalServices, ServerConfig},
+    APPLICATION_JSON,
 };
 use serde_json::json;
 
@@ -365,7 +366,7 @@ mod integration_tests {
         let req = test::TestRequest::post()
             .uri("/create-account")
             .set_payload("invalid json{")
-            .insert_header(("content-type", "application/json"))
+            .insert_header(("content-type", APPLICATION_JSON))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
