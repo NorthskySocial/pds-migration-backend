@@ -133,11 +133,7 @@ mod tests {
         };
         let dbg = format!("{:?}", req);
         assert!(dbg.contains(REDACTED));
-        for secret in [
-            "password-secret",
-            "token-secret",
-            "recovery-secret",
-        ] {
+        for secret in ["password-secret", "token-secret", "recovery-secret"] {
             assert!(!dbg.contains(secret), "leaked secret: {secret}");
         }
         assert!(dbg.contains("test-invite-code"));

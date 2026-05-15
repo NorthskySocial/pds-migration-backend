@@ -73,7 +73,12 @@ pub async fn get_service_auth_api(
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
-    tracing::info!("[{}] Service auth request received with aud: {}, pds_host: {}", did, req.aud, req.pds_host);
+    tracing::info!(
+        "[{}] Service auth request received with aud: {}, pds_host: {}",
+        did,
+        req.aud,
+        req.pds_host
+    );
     let response = pdsmigration_common::get_service_auth_api(req.into()).await?;
     let response = ServiceAuthResponse { token: response };
     Ok(HttpResponse::Ok().json(response))
