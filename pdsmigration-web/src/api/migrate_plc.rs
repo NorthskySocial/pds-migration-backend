@@ -68,7 +68,7 @@ impl From<MigratePlcApiRequest> for MigratePlcRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 #[post("/migrate-plc")]
 pub async fn migrate_plc_api(req: Json<MigratePlcApiRequest>) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();

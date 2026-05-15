@@ -49,7 +49,7 @@ impl From<UploadBlobsApiRequest> for UploadBlobsRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/upload-blobs")]
 pub async fn upload_blobs_api(req: Json<UploadBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();

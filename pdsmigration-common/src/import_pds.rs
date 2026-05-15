@@ -20,7 +20,7 @@ impl fmt::Debug for ImportPDSRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 pub async fn import_pds_api(req: ImportPDSRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!("[{}] Starting PDS repo import to {}", did, req.pds_host);

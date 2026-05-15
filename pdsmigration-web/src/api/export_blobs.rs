@@ -75,7 +75,7 @@ impl From<ExportBlobsResponse> for ExportBlobsApiResponse {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination, is_missing_blob_request = req.is_missing_blob_request))]
 #[post("/export-blobs")]
 pub async fn export_blobs_api(req: Json<ExportBlobsApiRequest>) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();

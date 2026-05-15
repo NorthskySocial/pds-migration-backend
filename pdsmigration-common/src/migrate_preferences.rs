@@ -25,7 +25,7 @@ impl fmt::Debug for MigratePreferencesRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 pub async fn migrate_preferences_api(req: MigratePreferencesRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!(

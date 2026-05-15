@@ -57,7 +57,7 @@ impl From<MigratePreferencesApiRequest> for MigratePreferencesRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 #[post("/migrate-preferences")]
 pub async fn migrate_preferences_api(
     req: Json<MigratePreferencesApiRequest>,

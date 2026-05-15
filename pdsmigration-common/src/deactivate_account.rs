@@ -20,7 +20,7 @@ impl fmt::Debug for DeactivateAccountRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 pub async fn deactivate_account_api(req: DeactivateAccountRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!(

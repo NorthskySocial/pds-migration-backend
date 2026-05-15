@@ -25,7 +25,7 @@ pub struct MissingBlobsResponse {
     pub missing_blobs: Vec<String>,
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 pub async fn missing_blobs_api(
     req: MissingBlobsRequest,
 ) -> Result<MissingBlobsResponse, MigrationError> {

@@ -22,7 +22,7 @@ impl std::fmt::Debug for ExportPDSRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     let session = login_helper(

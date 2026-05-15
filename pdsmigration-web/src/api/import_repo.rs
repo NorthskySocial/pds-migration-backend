@@ -50,7 +50,7 @@ impl From<ImportPDSApiRequest> for ImportPDSRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/import-repo")]
 pub async fn import_pds_api(
     req: Json<ImportPDSApiRequest>,

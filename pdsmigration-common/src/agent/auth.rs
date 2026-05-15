@@ -46,7 +46,7 @@ pub async fn login_helper(
     {
         Ok(_) => Ok(agent.get_session().await.unwrap()),
         Err(error) => {
-            tracing::error!("[{}] Error while logging in to {}: {}", did, pds_host, error);
+            tracing::error!("[{}] Error while logging-in to {}: {}", did, pds_host, error);
             match error {
                 Error::Authentication(_) => Err(MigrationError::Authentication {
                     message: error.to_string(),

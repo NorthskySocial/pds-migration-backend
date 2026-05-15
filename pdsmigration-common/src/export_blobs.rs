@@ -36,7 +36,7 @@ pub struct ExportBlobsResponse {
     pub invalid_blobs: Vec<String>,
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination, is_missing_blob_request = req.is_missing_blob_request))]
 pub async fn export_blobs_api(
     req: ExportBlobsRequest,
 ) -> Result<ExportBlobsResponse, MigrationError> {

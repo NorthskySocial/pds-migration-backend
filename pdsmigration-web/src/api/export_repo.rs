@@ -50,7 +50,7 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/export-repo")]
 pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();

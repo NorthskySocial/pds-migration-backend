@@ -33,7 +33,7 @@ impl fmt::Debug for MigratePlcRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 pub async fn migrate_plc_api(req: MigratePlcRequest) -> Result<(), MigrationError> {
     let did = req.did.as_str();
     tracing::info!(

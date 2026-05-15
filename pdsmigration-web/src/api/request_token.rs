@@ -49,7 +49,7 @@ impl From<RequestTokenApiRequest> for RequestTokenRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/request-token")]
 pub async fn request_token_api(
     req: Json<RequestTokenApiRequest>,

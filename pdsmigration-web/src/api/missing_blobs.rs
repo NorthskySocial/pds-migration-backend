@@ -62,7 +62,7 @@ impl From<MissingBlobsResponse> for MissingBlobsApiResponse {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/missing-blobs")]
 pub async fn missing_blobs_api(
     req: Json<MissingBlobsApiRequest>,

@@ -21,7 +21,7 @@ impl fmt::Debug for UploadBlobsRequest {
     }
 }
 
-#[tracing::instrument(skip(req))]
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
