@@ -52,29 +52,6 @@ impl std::fmt::Debug for GetRepoRequest {
     }
 }
 
-pub fn multicodec_wrap(bytes: Vec<u8>) -> Vec<u8> {
-    let mut buf = [0u8; 3];
-    unsigned_varint::encode::u16(0xe7, &mut buf);
-    let mut v: Vec<u8> = Vec::new();
-    for b in &buf {
-        v.push(*b);
-        // varint uses first bit to indicate another byte follows, stop if not the case
-        if *b <= 127 {
-            break;
-        }
-    }
-    v.extend(bytes);
-    v
-}
-
-pub fn public_key_to_did_key(public_key: PublicKey) -> String {
-    let pk_compact = public_key.serialize();
-    let pk_wrapped = multicodec_wrap(pk_compact.to_vec());
-    let pk_multibase = multibase::encode(Base58Btc, pk_wrapped.as_slice());
-    let public_key_str = format!("did:key:{pk_multibase}");
-    public_key_str
-}
-
 /// Convert a DID into a canonical CAR filename for repository
 /// exports / imports (`<did-with-colons-replaced>.car`).
 pub fn did_to_car_filename<D: AsRef<str>>(did: D) -> String {

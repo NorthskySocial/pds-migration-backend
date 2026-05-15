@@ -98,7 +98,7 @@ pub async fn get_blob(agent: &BskyAgent, cid: Cid, did: Did) -> Result<Vec<u8>, 
         .get_blob(GetBlobParams {
             data: GetBlobParamsData {
                 cid,
-                did: did.parse().unwrap(),
+                did: did.clone(),
             },
             extra_data: Ipld::Null,
         })
