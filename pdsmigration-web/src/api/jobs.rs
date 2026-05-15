@@ -1,6 +1,5 @@
 use crate::background_jobs::{JobManager, JobRecord};
 use crate::errors::ApiError;
-use crate::post;
 use actix_web::{get, web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -11,55 +10,6 @@ use uuid::Uuid;
 pub struct EnqueueJobResponse {
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
     pub job_id: String,
-}
-
-#[utoipa::path(
-    get,
-    path = "/jobs",
-    responses(
-        (status = 200, description = "List jobs", body = [JobRecord], content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs))]
-#[get("/jobs")]
-pub async fn list_jobs_api(jobs: web::Data<JobManager>) -> Result<HttpResponse, ApiError> {
-    let list = jobs.list().await;
-    Ok(HttpResponse::Ok().json(list))
-}
-
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-pub struct CancelJobResponse {
-    pub success: bool,
-}
-
-#[utoipa::path(
-    post,
-    path = "/jobs/{id}/cancel",
-    params(("id" = String, Path, description = "Job ID (UUID)")),
-    responses(
-        (status = 200, description = "Cancel job result", body = CancelJobResponse, content_type = "application/json"),
-    ),
-    tag = "pdsmigration-web"
-)]
-#[tracing::instrument(skip(jobs))]
-#[post("/jobs/{id}/cancel")]
-pub async fn cancel_job_api(
-    jobs: web::Data<JobManager>,
-    path: web::Path<(Uuid,)>,
-) -> Result<HttpResponse, ApiError> {
-    let id = path.into_inner().0;
-    tracing::info!("Cancelling job {}", id);
-    let success = jobs.cancel(id).await;
-    if success {
-        tracing::info!("Cancelled job {}", id);
-    } else {
-        tracing::warn!(
-            "Cancel requested for unknown or already-finished job {}",
-            id
-        );
-    }
-    Ok(HttpResponse::Ok().json(CancelJobResponse { success }))
 }
 
 #[utoipa::path(

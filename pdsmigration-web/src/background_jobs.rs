@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -40,7 +39,6 @@ pub enum JobStatus {
     Running,
     Success,
     Error,
-    Canceled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -101,11 +99,6 @@ impl JobRecord {
     }
 }
 
-#[derive(Debug)]
-struct RunningJob {
-    handle: JoinHandle<()>,
-}
-
 #[derive(Clone)]
 pub struct JobManager {
     state: Arc<RwLock<JobState>>,
@@ -114,7 +107,6 @@ pub struct JobManager {
 #[derive(Default, Debug)]
 struct JobState {
     records: HashMap<Uuid, JobRecord>,
-    running: HashMap<Uuid, RunningJob>,
 }
 
 impl JobState {
@@ -138,7 +130,6 @@ impl JobState {
             }
             r.finished_at = Some(now_millis());
         }
-        self.running.remove(&id);
     }
 
     pub fn update_total(&mut self, id: Uuid, total: u64) {
@@ -175,28 +166,9 @@ impl JobManager {
         }
     }
 
-    pub async fn list(&self) -> Vec<JobRecord> {
-        let st = self.state.read().await;
-        st.records.values().cloned().collect()
-    }
-
     pub async fn get(&self, id: Uuid) -> Option<JobRecord> {
         let st = self.state.read().await;
         st.records.get(&id).cloned()
-    }
-
-    pub async fn cancel(&self, id: Uuid) -> bool {
-        let mut st = self.state.write().await;
-        if let Some(running) = st.running.remove(&id) {
-            running.handle.abort();
-            if let Some(rec) = st.records.get_mut(&id) {
-                rec.status = JobStatus::Canceled;
-                rec.finished_at = Some(now_millis());
-            }
-            true
-        } else {
-            false
-        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -223,7 +195,7 @@ impl JobManager {
         }
 
         let state = self.state.clone();
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             {
                 let mut st = state.write().await;
                 st.set_running(id);
@@ -235,11 +207,6 @@ impl JobManager {
                 st.finalize(id, result);
             }
         });
-
-        {
-            let mut st = self.state.write().await;
-            st.running.insert(id, RunningJob { handle });
-        }
 
         Ok(id)
     }
@@ -258,7 +225,7 @@ impl JobManager {
         }
 
         let state = self.state.clone();
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             {
                 let mut st = state.write().await;
                 st.set_running(id);
@@ -269,11 +236,6 @@ impl JobManager {
                 st.finalize(id, result);
             }
         });
-
-        {
-            let mut st = self.state.write().await;
-            st.running.insert(id, RunningJob { handle });
-        }
 
         Ok(id)
     }
@@ -732,29 +694,13 @@ mod tests {
     }
 
     #[actix_rt::test]
-    async fn test_job_state_finalize_removes_running_handle() {
-        let mut state = JobState::default();
-        let id = Uuid::new_v4();
-        state
-            .records
-            .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
-        let handle = tokio::spawn(async {});
-        state.running.insert(id, RunningJob { handle });
-        assert!(state.running.contains_key(&id));
-
-        state.finalize(id, Ok(()));
-
-        assert!(!state.running.contains_key(&id));
-    }
-
-    #[actix_rt::test]
     async fn test_job_manager_get_returns_none_when_unknown() {
         let mgr = JobManager::new();
         assert!(mgr.get(Uuid::new_v4()).await.is_none());
     }
 
     #[actix_rt::test]
-    async fn test_job_manager_list_and_get_after_manual_insert() {
+    async fn test_job_manager_get_after_manual_insert() {
         let mgr = JobManager::new();
         let id = Uuid::new_v4();
         {
@@ -762,44 +708,10 @@ mod tests {
             st.records
                 .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
         }
-
-        let list = mgr.list().await;
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].id, id.to_string());
 
         let got = mgr.get(id).await.unwrap();
         assert_eq!(got.id, id.to_string());
         assert!(matches!(got.kind, JobKind::UploadBlobs));
-    }
-
-    #[actix_rt::test]
-    async fn test_job_manager_cancel_unknown_returns_false() {
-        let mgr = JobManager::new();
-        assert!(!mgr.cancel(Uuid::new_v4()).await);
-    }
-
-    #[actix_rt::test]
-    async fn test_job_manager_cancel_marks_record_canceled_and_aborts() {
-        let mgr = JobManager::new();
-        let id = Uuid::new_v4();
-        {
-            let mut st = mgr.state.write().await;
-            st.records
-                .insert(id, JobRecord::new(id, JobKind::UploadBlobs));
-            let handle = tokio::spawn(async {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            });
-            st.running.insert(id, RunningJob { handle });
-        }
-
-        assert!(mgr.cancel(id).await);
-
-        let rec = mgr.get(id).await.unwrap();
-        assert_eq!(rec.status, JobStatus::Canceled);
-        assert!(rec.finished_at.is_some());
-
-        let st = mgr.state.read().await;
-        assert!(!st.running.contains_key(&id));
     }
 
     #[actix_rt::test]

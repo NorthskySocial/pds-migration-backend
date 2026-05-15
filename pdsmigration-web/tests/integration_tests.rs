@@ -1,9 +1,9 @@
 use actix_web::{http::StatusCode, test, web, App};
 use pdsmigration_web::{
     api::{
-        activate_account_api, cancel_job_api, create_account_api, deactivate_account_api,
+        activate_account_api, create_account_api, deactivate_account_api,
         enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
-        get_service_auth_api, health_check, import_pds_api, list_jobs_api, migrate_plc_api,
+        get_service_auth_api, health_check, import_pds_api, migrate_plc_api,
         migrate_preferences_api, missing_blobs_api, request_token_api,
     },
     background_jobs::JobManager,
@@ -75,9 +75,7 @@ mod integration_tests {
                 .service(get_service_auth_api)
                 .service(enqueue_export_blobs_job_api)
                 .service(enqueue_upload_blobs_job_api)
-                .service(list_jobs_api)
-                .service(get_job_api)
-                .service(cancel_job_api),
+                .service(get_job_api),
         )
         .await;
     }
@@ -368,29 +366,6 @@ mod integration_tests {
     }
 
     #[actix_rt::test]
-    async fn test_list_jobs_endpoint() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager)
-                .service(list_jobs_api),
-        )
-        .await;
-
-        let req = test::TestRequest::get().uri("/jobs").to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-
-        let body = test::read_body(resp).await;
-        let jobs: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(jobs.len(), 0);
-    }
-
-    #[actix_rt::test]
     async fn test_enqueue_export_blobs_job_missing_fields() {
         let app_config = create_test_config();
         let job_manager = web::Data::new(JobManager::new());
@@ -413,31 +388,6 @@ mod integration_tests {
     }
 
     #[actix_rt::test]
-    async fn test_cancel_job_with_invalid_id() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager)
-                .service(cancel_job_api),
-        )
-        .await;
-
-        let req = test::TestRequest::post()
-            .uri("/jobs/550e8400-e29b-41d4-a716-446655440000/cancel")
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-
-        let body = test::read_body(resp).await;
-        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(response["success"], false);
-    }
-
-    #[actix_rt::test]
     async fn test_get_nonexistent_job() {
         let app_config = create_test_config();
         let job_manager = web::Data::new(JobManager::new());
@@ -452,27 +402,6 @@ mod integration_tests {
 
         let req = test::TestRequest::get()
             .uri("/jobs/550e8400-e29b-41d4-a716-446655440000")
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[actix_rt::test]
-    async fn test_cancel_job_with_invalid_uuid_format() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager)
-                .service(cancel_job_api),
-        )
-        .await;
-
-        let req = test::TestRequest::post()
-            .uri("/jobs/invalid-uuid/cancel")
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -548,96 +477,6 @@ mod integration_tests {
     }
 
     #[actix_rt::test]
-    async fn test_list_jobs_with_existing_jobs() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager.clone())
-                .service(enqueue_export_blobs_job_api)
-                .service(list_jobs_api),
-        )
-        .await;
-
-        for i in 0..2 {
-            let export_request = json!({
-                "destination": format!("https://destination{}.pds.host", i),
-                "origin": "https://origin.pds.host",
-                "did": "did:plc:test123456789",
-                "origin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-                "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-                "is_missing_blob_request": false
-            });
-
-            let req = test::TestRequest::post()
-                .uri("/jobs/export-blobs")
-                .set_json(&export_request)
-                .to_request();
-
-            let resp = test::call_service(&app, req).await;
-            assert_eq!(resp.status(), StatusCode::ACCEPTED);
-        }
-
-        let list_req = test::TestRequest::get().uri("/jobs").to_request();
-
-        let list_resp = test::call_service(&app, list_req).await;
-        assert_eq!(list_resp.status(), StatusCode::OK);
-
-        let body = test::read_body(list_resp).await;
-        let jobs: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(jobs.len(), 2);
-    }
-
-    #[actix_rt::test]
-    async fn test_cancel_existing_job() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager.clone())
-                .service(enqueue_export_blobs_job_api)
-                .service(cancel_job_api),
-        )
-        .await;
-
-        let export_request = json!({
-            "destination": "https://destination.pds.host",
-            "origin": "https://origin.pds.host",
-            "did": "did:plc:test123456789",
-            "origin_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-            "destination_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature",
-            "is_missing_blob_request": false
-        });
-
-        let req = test::TestRequest::post()
-            .uri("/jobs/export-blobs")
-            .set_json(&export_request)
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::ACCEPTED);
-
-        let body = test::read_body(resp).await;
-        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let job_id = response["job_id"].as_str().unwrap();
-
-        let cancel_req = test::TestRequest::post()
-            .uri(&format!("/jobs/{}/cancel", job_id))
-            .to_request();
-
-        let cancel_resp = test::call_service(&app, cancel_req).await;
-        assert_eq!(cancel_resp.status(), StatusCode::OK);
-
-        let cancel_body = test::read_body(cancel_resp).await;
-        let cancel_response: serde_json::Value = serde_json::from_slice(&cancel_body).unwrap();
-        assert_eq!(cancel_response["success"], true);
-    }
-
-    #[actix_rt::test]
     async fn test_enqueue_upload_blobs_job_missing_fields() {
         let app_config = create_test_config();
         let job_manager = web::Data::new(JobManager::new());
@@ -701,89 +540,5 @@ mod integration_tests {
         let job_body = test::read_body(get_resp).await;
         let job: serde_json::Value = serde_json::from_slice(&job_body).unwrap();
         assert_eq!(job["id"].as_str().unwrap(), job_id);
-    }
-
-    #[actix_rt::test]
-    async fn test_list_jobs_with_upload_blobs_jobs() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager.clone())
-                .service(enqueue_upload_blobs_job_api)
-                .service(list_jobs_api),
-        )
-        .await;
-
-        for i in 0..2 {
-            let upload_request = json!({
-                "pds_host": format!("https://destination{}.pds.host", i),
-                "did": "did:plc:test123456789",
-                "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
-            });
-
-            let req = test::TestRequest::post()
-                .uri("/jobs/upload-blobs")
-                .set_json(&upload_request)
-                .to_request();
-
-            let resp = test::call_service(&app, req).await;
-            assert_eq!(resp.status(), StatusCode::ACCEPTED);
-        }
-
-        let list_req = test::TestRequest::get().uri("/jobs").to_request();
-
-        let list_resp = test::call_service(&app, list_req).await;
-        assert_eq!(list_resp.status(), StatusCode::OK);
-
-        let body = test::read_body(list_resp).await;
-        let jobs: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(jobs.len(), 2);
-    }
-
-    #[actix_rt::test]
-    async fn test_cancel_upload_blobs_job() {
-        let app_config = create_test_config();
-        let job_manager = web::Data::new(JobManager::new());
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(app_config))
-                .app_data(job_manager.clone())
-                .service(enqueue_upload_blobs_job_api)
-                .service(cancel_job_api),
-        )
-        .await;
-
-        let upload_request = json!({
-            "pds_host": "https://destination.pds.host",
-            "did": "did:plc:test123456789",
-            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
-        });
-
-        let req = test::TestRequest::post()
-            .uri("/jobs/upload-blobs")
-            .set_json(&upload_request)
-            .to_request();
-
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::ACCEPTED);
-
-        let body = test::read_body(resp).await;
-        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let job_id = response["job_id"].as_str().unwrap();
-
-        let cancel_req = test::TestRequest::post()
-            .uri(&format!("/jobs/{}/cancel", job_id))
-            .to_request();
-
-        let cancel_resp = test::call_service(&app, cancel_req).await;
-        assert_eq!(cancel_resp.status(), StatusCode::OK);
-
-        let cancel_body = test::read_body(cancel_resp).await;
-        let cancel_response: serde_json::Value = serde_json::from_slice(&cancel_body).unwrap();
-        assert_eq!(cancel_response["success"], true);
     }
 }
