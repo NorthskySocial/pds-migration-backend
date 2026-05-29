@@ -1,5 +1,5 @@
 use crate::agent::{account_import, login_helper};
-use crate::{build_agent, did_to_car_filename, downloads_dir, MigrationError, REDACTED};
+use crate::{build_agent, repo_car_path, MigrationError, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -32,8 +32,7 @@ pub async fn import_pds_api(req: ImportPDSRequest) -> Result<(), MigrationError>
         req.token.as_str(),
     )
     .await?;
-    let filename = did_to_car_filename(&session.did);
-    let path = downloads_dir()?.join(&filename);
+    let path = repo_car_path(&session.did)?;
     let path_str = path.to_string_lossy().into_owned();
     tracing::info!("[{}] Importing repo from {}", did, path_str);
     account_import(&agent, path_str.as_str()).await?;

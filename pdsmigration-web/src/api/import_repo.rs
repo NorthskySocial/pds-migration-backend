@@ -3,7 +3,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
-use pdsmigration_common::{did_to_car_filename, downloads_dir, ImportPDSRequest, REDACTED};
+use pdsmigration_common::{did_to_car_filename, repo_car_path, ImportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -91,11 +91,9 @@ pub async fn import_pds_api(
             message: error.to_string(),
         })?;
 
-    let file_path = downloads_dir()
-        .map_err(|error| ApiError::Runtime {
-            message: error.to_string(),
-        })?
-        .join(&file_name);
+    let file_path = repo_car_path(&did).map_err(|error| ApiError::Runtime {
+        message: error.to_string(),
+    })?;
     std::fs::write(&file_path, body_bytes.into_bytes()).map_err(|error| ApiError::Runtime {
         message: error.to_string(),
     })?;
