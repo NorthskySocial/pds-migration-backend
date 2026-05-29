@@ -27,7 +27,7 @@ impl AppConfig {
         let server_port = env::var("SERVER_PORT").unwrap_or("9090".to_string());
         let worker_count = env::var("WORKER_COUNT").unwrap_or("2".to_string());
         let concurrent_tasks_per_job =
-            env::var("CONCURRENT_TASKS_PER_JOB").unwrap_or("3".to_string());
+            env::var("CONCURRENT_TASKS_PER_JOB").unwrap_or("6".to_string());
         let s3_endpoint = env::var("ENDPOINT").expect("ENDPOINT environment variable not set");
         let rate_limit_window_secs = env::var("RATE_LIMIT_WINDOW_SECS").unwrap_or("60".to_string());
         let rate_limit_max_requests =
