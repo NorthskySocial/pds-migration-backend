@@ -95,6 +95,14 @@ pub fn did_blobs_path<D: AsRef<str>>(did: D) -> Result<std::path::PathBuf, Migra
     Ok(path)
 }
 
+/// Build the canonical on-disk path for a DID's repo CAR export:
+/// `<downloads_dir>/<did-with-colons-replaced>.car`.
+pub fn repo_car_path<D: AsRef<str>>(did: D) -> Result<std::path::PathBuf, MigrationError> {
+    let mut path = downloads_dir()?;
+    path.push(did_to_car_filename(did));
+    Ok(path)
+}
+
 /// Convert a DID into the directory / file basename used on disk.
 fn did_to_dirname<D: AsRef<str>>(did: D) -> String {
     did.as_ref().replace(':', "-")
@@ -180,6 +188,47 @@ mod tests {
         let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
         let path = did_blobs_path(&did).expect("downloads dir should be readable in tests");
         assert_eq!(path, base.join("did-plc-abc123"));
+    }
+
+    #[test]
+    fn repo_car_path_appends_car_filename_to_base() {
+        let base = downloads_dir().expect("downloads dir should be readable in tests");
+        let path =
+            repo_car_path("did:plc:abc123").expect("downloads dir should be readable in tests");
+        assert_eq!(path, base.join("did-plc-abc123.car"));
+    }
+
+    #[test]
+    fn repo_car_path_accepts_did_type() {
+        let did = Did::new("did:plc:abc123".to_string()).expect("valid test DID");
+        let from_str =
+            repo_car_path("did:plc:abc123").expect("downloads dir should be readable in tests");
+        let from_did = repo_car_path(&did).expect("downloads dir should be readable in tests");
+        assert_eq!(from_str, from_did);
+    }
+
+    #[test]
+    fn repo_car_path_differs_per_did() {
+        let a = repo_car_path("did:plc:aaa").expect("downloads dir should be readable");
+        let b = repo_car_path("did:plc:bbb").expect("downloads dir should be readable");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn repo_car_path_filename_matches_did_to_car_filename() {
+        let did = "did:plc:abc123";
+        let path = repo_car_path(did).expect("downloads dir should be readable");
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some(did_to_car_filename(did).as_str())
+        );
+    }
+
+    #[test]
+    fn repo_car_path_is_under_downloads_dir() {
+        let base = downloads_dir().expect("downloads dir should be readable");
+        let path = repo_car_path("did:plc:abc123").expect("downloads dir should be readable");
+        assert_eq!(path.parent(), Some(base.as_path()));
     }
 
     #[test]

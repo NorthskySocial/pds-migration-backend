@@ -2,7 +2,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use actix_web::web::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::{did_to_car_filename, ExportPDSRequest, REDACTED};
+use pdsmigration_common::{did_to_car_filename, repo_car_path, ExportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
@@ -92,18 +92,22 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     let bucket_name = "migration".to_string();
     let file_name = did_to_car_filename(&did);
     let key = format!("migration/{file_name}");
+    let file_path = repo_car_path(&did).map_err(|e| {
+        tracing::error!("[{}] Failed to resolve downloads directory: {}", did, e);
+        ApiError::Runtime {
+            message: e.to_string(),
+        }
+    })?;
 
     tracing::debug!(
         "[{}] Uploading file {} to S3 bucket {} with key {}",
         did,
-        file_name,
+        file_path.display(),
         bucket_name,
         key
     );
 
-    let body = match aws_sdk_s3::primitives::ByteStream::from_path(std::path::Path::new(&file_name))
-        .await
-    {
+    let body = match aws_sdk_s3::primitives::ByteStream::from_path(&file_path).await {
         Ok(body) => {
             tracing::debug!("[{}] Successfully created ByteStream from file", did);
             body
@@ -112,7 +116,7 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
             tracing::error!(
                 "[{}] Failed to create ByteStream from file {}: {:?}",
                 did,
-                file_name,
+                file_path.display(),
                 e
             );
             return Err(ApiError::Runtime {

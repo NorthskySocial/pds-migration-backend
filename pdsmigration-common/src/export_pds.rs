@@ -1,7 +1,5 @@
 use crate::agent::{download_repo, login_helper};
-use crate::{
-    build_agent, did_to_car_filename, downloads_dir, GetRepoRequest, MigrationError, REDACTED,
-};
+use crate::{build_agent, repo_car_path, GetRepoRequest, MigrationError, REDACTED};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -41,13 +39,12 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
     };
     match download_repo(agent.get_endpoint().await.as_str(), &get_repo_request).await {
         Ok(mut stream) => {
-            let mut path = downloads_dir().map_err(|error| {
+            let path = repo_car_path(&session.did).map_err(|error| {
                 tracing::error!("[{}] Failed to resolve downloads directory: {}", did, error);
                 MigrationError::Runtime {
                     message: "Failed to resolve downloads directory".to_string(),
                 }
             })?;
-            path.push(did_to_car_filename(&session.did));
             tracing::info!(
                 "[{}] Writing account repo export to {}",
                 did,
