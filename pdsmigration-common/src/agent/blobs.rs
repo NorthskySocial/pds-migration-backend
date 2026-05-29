@@ -6,6 +6,22 @@ use bsky_sdk::api::com::atproto::repo::list_missing_blobs::RecordBlob;
 use bsky_sdk::api::types::string::{Cid, Did};
 use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Shared HTTP client for all blob upload/download requests.
+/// reqwest holds a connection pool internally to improve performance by reusing
+/// connections and avoiding setup overhead
+fn blob_http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
+            .build()
+            .expect("failed to build shared blob HTTP client")
+    })
+}
 
 #[tracing::instrument(skip(agent))]
 pub async fn list_all_blobs(agent: &BskyAgent) -> Result<Vec<Cid>, MigrationError> {
@@ -145,7 +161,7 @@ pub async fn upload_blob_v2(
         })?;
     let did_str = session.did.as_str();
 
-    let client = reqwest::Client::new();
+    let client = blob_http_client();
     let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", pds_host);
 
     tracing::debug!(
@@ -240,7 +256,7 @@ pub async fn download_blob(
 {
     let did_str = request.did.as_str();
     tracing::debug!("[{}] Downloading blob", did_str);
-    let client = reqwest::Client::new();
+    let client = blob_http_client();
     let url = format!("{pds_host}/xrpc/com.atproto.sync.getBlob");
     let result = client
         .get(url)
@@ -295,5 +311,17 @@ pub async fn download_blob(
                 message: "Unexpected Error downloading blob".to_string(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blob_http_client_is_shared() {
+        let a = blob_http_client();
+        let b = blob_http_client();
+        assert!(std::ptr::eq(a, b), "shared client should be a singleton");
     }
 }
