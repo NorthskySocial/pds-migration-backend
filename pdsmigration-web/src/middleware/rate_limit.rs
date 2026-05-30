@@ -87,30 +87,38 @@ where
         let inner = self.inner.clone();
         let service = self.service.clone();
 
+        let path = req.path().to_string();
+        let is_exempt = path.starts_with("/jobs/")
+            || path == "/jobs"
+            || path == "/health"
+            || path == "/metrics";
+
         Box::pin(async move {
-            if let Some(ip) = peer_ip {
-                let now = Instant::now();
-                let mut map = inner.state.lock().expect("rate limiter mutex poisoned");
-                let entry = map.entry(ip).or_insert((now, 0));
+            if !is_exempt {
+                if let Some(ip) = peer_ip {
+                    let now = Instant::now();
+                    let mut map = inner.state.lock().expect("rate limiter mutex poisoned");
+                    let entry = map.entry(ip).or_insert((now, 0));
 
-                // Reset window if elapsed
-                if now.duration_since(entry.0) >= inner.window {
-                    *entry = (now, 0);
+                    // Reset window if elapsed
+                    if now.duration_since(entry.0) >= inner.window {
+                        *entry = (now, 0);
+                    }
+
+                    // Check before incrementing: allow exactly max_requests within window
+                    if entry.1 >= inner.max_requests {
+                        // Too many requests
+                        drop(map);
+                        let api_err = ApiError::RateLimit {
+                            message: "Rate limit exceeded".to_string(),
+                        };
+                        let resp = api_err.error_response();
+                        return Ok(req.into_response(resp).map_into_left_body());
+                    }
+
+                    // Increment count and proceed
+                    entry.1 += 1;
                 }
-
-                // Check before incrementing: allow exactly max_requests within window
-                if entry.1 >= inner.max_requests {
-                    // Too many requests
-                    drop(map);
-                    let api_err = ApiError::RateLimit {
-                        message: "Rate limit exceeded".to_string(),
-                    };
-                    let resp = api_err.error_response();
-                    return Ok(req.into_response(resp).map_into_left_body());
-                }
-
-                // Increment count and proceed
-                entry.1 += 1;
             }
 
             let res = service.call(req).await?;

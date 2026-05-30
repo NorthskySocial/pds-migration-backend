@@ -31,7 +31,7 @@ impl AppConfig {
         let s3_endpoint = env::var("ENDPOINT").expect("ENDPOINT environment variable not set");
         let rate_limit_window_secs = env::var("RATE_LIMIT_WINDOW_SECS").unwrap_or("60".to_string());
         let rate_limit_max_requests =
-            env::var("RATE_LIMIT_MAX_REQUESTS").unwrap_or("60".to_string());
+            env::var("RATE_LIMIT_MAX_REQUESTS").unwrap_or("240".to_string());
 
         Self {
             server: ServerConfig {
