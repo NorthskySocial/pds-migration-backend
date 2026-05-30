@@ -112,7 +112,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/request-token")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -132,7 +132,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/export-pds")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -152,7 +152,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/import-pds")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -172,7 +172,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/activate-account")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -192,7 +192,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/deactivate-account")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -212,7 +212,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/migrate-preferences")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -232,7 +232,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/migrate-plc")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -252,7 +252,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/get-service-auth")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -359,7 +359,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/jobs/export-blobs")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -470,7 +470,7 @@ mod integration_tests {
 
         let req = test::TestRequest::post()
             .uri("/jobs/upload-blobs")
-            .set_json(&json!({}))
+            .set_json(json!({}))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
