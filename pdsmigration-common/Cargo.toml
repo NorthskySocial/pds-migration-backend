@@ -36,5 +36,6 @@ tokio = { workspace = true }
 [dev-dependencies]
 mockall = { workspace = true }
 tokio-test = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }
 wiremock = { workspace = true }
 pretty_assertions = { workspace = true }
