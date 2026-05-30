@@ -28,11 +28,7 @@ COPY pdsmigration-common pdsmigration-common
 COPY pdsmigration-web pdsmigration-web
 RUN cargo build --profile release-docker --package pdsmigration-web
 
-FROM debian:trixie-slim AS runtime
-RUN apt-get update \
- && apt-get install --no-install-recommends -y ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
+FROM gcr.io/distroless/cc-debian13:nonroot AS runtime
 WORKDIR /app
 COPY --from=builder /app/target/release-docker/pdsmigration-web /app/
 
