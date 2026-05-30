@@ -54,3 +54,24 @@ pub async fn get_job_api(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enqueue_job_response_serializes_with_job_id_field() {
+        let resp = EnqueueJobResponse {
+            job_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["job_id"], "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn enqueue_job_response_round_trips_via_serde() {
+        let payload = serde_json::json!({ "job_id": "abc-123" });
+        let parsed: EnqueueJobResponse = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.job_id, "abc-123");
+    }
+}
