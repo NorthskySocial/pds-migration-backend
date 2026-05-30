@@ -89,6 +89,7 @@ jobs:
   docker-test:
     name: Docker Test
     if: github.event_name == 'pull_request'
+    needs: docker-build
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
