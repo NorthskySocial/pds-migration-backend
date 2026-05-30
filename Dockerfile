@@ -28,6 +28,9 @@ COPY pdsmigration-common pdsmigration-common
 COPY pdsmigration-web pdsmigration-web
 RUN cargo build --profile release-docker --package pdsmigration-web
 
+FROM builder AS test
+RUN cargo test --package pdsmigration-common --package pdsmigration-web --no-fail-fast
+
 FROM gcr.io/distroless/cc-debian13:latest AS runtime
 WORKDIR /app
 COPY --from=builder /app/target/release-docker/pdsmigration-web /app/
