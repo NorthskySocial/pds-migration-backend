@@ -243,8 +243,7 @@ async fn upload_job_first_pass_exhausts_retries_then_second_pass_succeeds() {
     let blob_dir = did_blobs_path(&did).expect("downloads dir resolvable");
     let _ = std::fs::remove_dir_all(&blob_dir);
     std::fs::create_dir_all(&blob_dir).expect("create blob dir");
-    std::fs::write(blob_dir.join("blob-eventual"), b"second-pass-recovers")
-        .expect("seed blob");
+    std::fs::write(blob_dir.join("blob-eventual"), b"second-pass-recovers").expect("seed blob");
 
     let jobs = JobManager::new();
     let upload_id = jobs
