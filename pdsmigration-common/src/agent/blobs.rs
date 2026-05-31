@@ -9,6 +9,8 @@ use ipld_core::ipld::Ipld;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+const DEFAULT_BLOB_REQUEST_TIMEOUT_SECS: u64 = 120;
+
 /// Shared HTTP client for all blob upload/download requests.
 /// reqwest holds a connection pool internally to improve performance by reusing
 /// connections and avoiding setup overhead
@@ -18,9 +20,20 @@ fn blob_http_client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(60))
+            .timeout(blob_request_timeout())
             .build()
             .expect("failed to build shared blob HTTP client")
     })
+}
+
+/// Resolve the blob request timeout from the `BLOB_REQUEST_TIMEOUT_SECS`
+/// environment variable, falling back to the default if not set or invalid.
+fn blob_request_timeout() -> Duration {
+    let secs = std::env::var("BLOB_REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_BLOB_REQUEST_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 #[tracing::instrument(skip(agent))]
