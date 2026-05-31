@@ -5,8 +5,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-mod common;
-use common::unique_did;
+use pdsmigration_common::unique_did;
 
 #[tokio::test]
 async fn export_import_repo_roundtrip() {
