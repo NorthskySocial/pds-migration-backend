@@ -71,12 +71,8 @@ pub enum JobStatus {
 pub struct JobProgress {
     #[schema(example = 1)]
     pub successful_blobs: u64,
-    #[schema(example = json!(["550e8400-e29b-41d4-a716-446655440000"]))]
-    pub successful_blobs_ids: Vec<String>,
     #[schema(example = 1)]
     pub invalid_blobs: u64,
-    #[schema(example = json!(["550e8400-e29b-41d4-a716-446655440001"]))]
-    pub invalid_blob_ids: Vec<String>,
     #[schema(example = 2)]
     pub total: Option<u64>,
 }
@@ -102,9 +98,7 @@ pub struct JobRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = json!({
             "successful_blobs": 99,
-            "successful_blobs_ids": ["550e8400-e29b-41d4-a716-446655440000"],
             "invalid_blobs": 1,
-            "invalid_blob_ids": ["550e8400-e29b-41d4-a716-446655440001"],
             "total": 100
         }))]
     pub progress: Option<JobProgress>,
@@ -166,20 +160,18 @@ impl JobState {
         }
     }
 
-    pub fn record_success(&mut self, id: Uuid, blob_id: String) {
+    pub fn record_success(&mut self, id: Uuid) {
         if let Some(r) = self.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
                 progress.successful_blobs += 1;
-                progress.successful_blobs_ids.push(blob_id);
             }
         }
     }
 
-    pub fn record_failure(&mut self, id: Uuid, blob_id: String) {
+    pub fn record_failure(&mut self, id: Uuid) {
         if let Some(r) = self.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
                 progress.invalid_blobs += 1;
-                progress.invalid_blob_ids.push(blob_id);
             }
         }
     }
@@ -370,7 +362,7 @@ async fn export_blobs_api_job(
 
                     {
                         let mut st = state.write().await;
-                        st.record_success(id, blob_cid_str.clone());
+                        st.record_success(id);
                     }
                 }
                 Err(e) => {
@@ -386,7 +378,7 @@ async fn export_blobs_api_job(
                     );
                     {
                         let mut st = state.write().await;
-                        st.record_failure(id, blob_cid_str.clone());
+                        st.record_failure(id);
                     }
                 }
             }
@@ -479,7 +471,7 @@ async fn upload_blobs_api_job(
         match result {
             Ok(()) => {
                 let mut st = state.write().await;
-                st.record_success(id, blob_cid_str);
+                st.record_success(id);
             }
             Err(e) => {
                 tracing::warn!(
@@ -508,7 +500,7 @@ async fn upload_blobs_api_job(
                 Err(error) => {
                     tracing::error!("[{}] {}", did, error.to_string());
                     let mut st = state.write().await;
-                    st.record_failure(id, blob_cid_str);
+                    st.record_failure(id);
                     continue;
                 }
             };
@@ -521,7 +513,7 @@ async fn upload_blobs_api_job(
                         blob_cid_str
                     );
                     let mut st = state.write().await;
-                    st.record_success(id, blob_cid_str);
+                    st.record_success(id);
                 }
                 Err(e) => {
                     tracing::error!(
@@ -532,7 +524,7 @@ async fn upload_blobs_api_job(
                         e
                     );
                     let mut st = state.write().await;
-                    st.record_failure(id, blob_cid_str);
+                    st.record_failure(id);
                 }
             }
         }
@@ -619,8 +611,6 @@ mod tests {
         let progress = record.progress.unwrap();
         assert_eq!(progress.successful_blobs, 0);
         assert_eq!(progress.invalid_blobs, 0);
-        assert!(progress.successful_blobs_ids.is_empty());
-        assert!(progress.invalid_blob_ids.is_empty());
         assert!(progress.total.is_none());
     }
 
@@ -699,13 +689,12 @@ mod tests {
         let record = JobRecord::new(id, JobKind::ExportBlobs);
         state.records.insert(id, record);
 
-        state.record_success(id, "blob1".to_string());
-        state.record_success(id, "blob2".to_string());
+        state.record_success(id);
+        state.record_success(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
         assert_eq!(progress.successful_blobs, 2);
-        assert_eq!(progress.successful_blobs_ids, vec!["blob1", "blob2"]);
     }
 
     #[test]
@@ -715,13 +704,12 @@ mod tests {
         let record = JobRecord::new(id, JobKind::ExportBlobs);
         state.records.insert(id, record);
 
-        state.record_failure(id, "bad_blob1".to_string());
-        state.record_failure(id, "bad_blob2".to_string());
+        state.record_failure(id);
+        state.record_failure(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
         assert_eq!(progress.invalid_blobs, 2);
-        assert_eq!(progress.invalid_blob_ids, vec!["bad_blob1", "bad_blob2"]);
     }
 
     #[test]
@@ -732,11 +720,11 @@ mod tests {
         state.records.insert(id, record);
 
         state.update_total(id, 5);
-        state.record_success(id, "ok1".to_string());
-        state.record_success(id, "ok2".to_string());
-        state.record_success(id, "ok3".to_string());
-        state.record_failure(id, "fail1".to_string());
-        state.record_failure(id, "fail2".to_string());
+        state.record_success(id);
+        state.record_success(id);
+        state.record_success(id);
+        state.record_failure(id);
+        state.record_failure(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
@@ -755,8 +743,8 @@ mod tests {
     #[test]
     fn test_job_state_record_success_failure_unknown_id_is_noop() {
         let mut state = JobState::default();
-        state.record_success(Uuid::new_v4(), "x".to_string());
-        state.record_failure(Uuid::new_v4(), "y".to_string());
+        state.record_success(Uuid::new_v4());
+        state.record_failure(Uuid::new_v4());
         state.update_total(Uuid::new_v4(), 1);
         assert!(state.records.is_empty());
     }

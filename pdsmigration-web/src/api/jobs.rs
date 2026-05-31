@@ -27,9 +27,7 @@ pub struct EnqueueJobResponse {
                 "finished_at": 1700000100,
                 "progress": {
                     "successful_blobs": 1,
-                    "successful_blobs_ids": ["550e8400-e29b-41d4-a716-446655440000"],
                     "invalid_blobs": 1,
-                    "invalid_blob_ids": ["550e8400-e29b-41d4-a716-446655440001"],
                     "total": 2
                 }
             })
