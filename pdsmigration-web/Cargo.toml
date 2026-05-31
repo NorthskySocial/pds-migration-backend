@@ -15,6 +15,7 @@ path = "src/main.rs"
 [lib]
 name = "pdsmigration_web"
 path = "src/lib.rs"
+doctest = false
 
 [dependencies]
 dotenvy = "0.15.7"

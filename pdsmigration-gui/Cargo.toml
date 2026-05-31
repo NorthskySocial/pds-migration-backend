@@ -7,6 +7,9 @@ include = [
     "Cargo.toml",
 ]
 
+[lib]
+doctest = false
+
 [dependencies]
 pdsmigration-common = { workspace = true }
 derive_more = { workspace = true, features = ["display"] }
