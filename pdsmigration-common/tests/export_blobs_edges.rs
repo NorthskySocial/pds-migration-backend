@@ -72,8 +72,15 @@ async fn export_blobs_downloads_all_missing_blobs() {
     .await
     .expect("export should succeed when all blobs download");
 
-    assert_eq!(response.successful_blobs.len(), 2, "both blobs should succeed");
-    assert!(response.invalid_blobs.is_empty(), "no invalid blobs expected");
+    assert_eq!(
+        response.successful_blobs.len(),
+        2,
+        "both blobs should succeed"
+    );
+    assert!(
+        response.invalid_blobs.is_empty(),
+        "no invalid blobs expected"
+    );
     for cid in [CID_ALPHA, CID_BETA] {
         let on_disk = std::fs::read(blob_dir.join(cid)).expect("blob file should exist");
         assert_eq!(on_disk, payload, "on-disk bytes should match streamed body");
