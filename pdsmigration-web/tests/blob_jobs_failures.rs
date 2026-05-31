@@ -212,3 +212,141 @@ async fn upload_job_records_invalid_when_both_attempts_fail() {
 
     let _ = std::fs::remove_dir_all(&blob_dir);
 }
+
+#[tokio::test]
+async fn upload_job_first_pass_exhausts_retries_then_second_pass_succeeds() {
+    let destination = MockServer::start().await;
+    let did = unique_did("exhaust_then_success");
+
+    Mock::given(method("GET"))
+        .and(path("/xrpc/com.atproto.server.getSession"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(session_body(&did)))
+        .mount(&destination)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/xrpc/com.atproto.repo.uploadBlob"))
+        .respond_with(
+            ResponseTemplate::new(500)
+                .insert_header("ratelimit-remaining", "1000")
+                .set_body_string("transient"),
+        )
+        .up_to_n_times(2)
+        .mount(&destination)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/xrpc/com.atproto.repo.uploadBlob"))
+        .respond_with(ResponseTemplate::new(200).insert_header("ratelimit-remaining", "1000"))
+        .mount(&destination)
+        .await;
+
+    let blob_dir = did_blobs_path(&did).expect("downloads dir resolvable");
+    let _ = std::fs::remove_dir_all(&blob_dir);
+    std::fs::create_dir_all(&blob_dir).expect("create blob dir");
+    std::fs::write(blob_dir.join("blob-eventual"), b"second-pass-recovers")
+        .expect("seed blob");
+
+    let jobs = JobManager::new();
+    let upload_id = jobs
+        .spawn_upload_blobs(
+            UploadBlobsRequest {
+                pds_host: destination.uri(),
+                did: did.clone(),
+                token: "destination-jwt".to_string(),
+            },
+            1,
+            1,
+        )
+        .await
+        .expect("spawn_upload_blobs should accept the request");
+
+    assert_eq!(
+        await_job(&jobs, upload_id).await,
+        JobStatus::Success,
+        "second pass should be able to rescue a blob that exhausted first-pass retries"
+    );
+
+    let record = jobs.get(upload_id).await.expect("job record");
+    let progress = record.progress.as_ref().expect("progress tracked");
+    assert_eq!(
+        progress.successful_blobs, 1,
+        "the rescued blob should be counted as a success"
+    );
+    assert_eq!(progress.invalid_blobs, 0);
+
+    let received = destination.received_requests().await.expect("requests");
+    let uploads = received
+        .iter()
+        .filter(|r| r.url.path() == "/xrpc/com.atproto.repo.uploadBlob")
+        .count();
+    assert_eq!(
+        uploads, 3,
+        "expected 2 first-pass attempts plus 1 second-pass attempt"
+    );
+
+    let _ = std::fs::remove_dir_all(&blob_dir);
+}
+
+#[tokio::test]
+async fn upload_job_marks_invalid_when_first_pass_retries_and_second_pass_all_fail() {
+    let destination = MockServer::start().await;
+    let did = unique_did("exhaust_all");
+
+    Mock::given(method("GET"))
+        .and(path("/xrpc/com.atproto.server.getSession"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(session_body(&did)))
+        .mount(&destination)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/xrpc/com.atproto.repo.uploadBlob"))
+        .respond_with(
+            ResponseTemplate::new(500)
+                .insert_header("ratelimit-remaining", "1000")
+                .set_body_string("always broken"),
+        )
+        .mount(&destination)
+        .await;
+
+    let blob_dir = did_blobs_path(&did).expect("downloads dir resolvable");
+    let _ = std::fs::remove_dir_all(&blob_dir);
+    std::fs::create_dir_all(&blob_dir).expect("create blob dir");
+    std::fs::write(blob_dir.join("blob-doomed"), b"never works").expect("seed blob");
+
+    let jobs = JobManager::new();
+    let upload_id = jobs
+        .spawn_upload_blobs(
+            UploadBlobsRequest {
+                pds_host: destination.uri(),
+                did: did.clone(),
+                token: "destination-jwt".to_string(),
+            },
+            1,
+            1,
+        )
+        .await
+        .expect("spawn_upload_blobs should accept the request");
+
+    assert_eq!(
+        await_job(&jobs, upload_id).await,
+        JobStatus::Success,
+        "the job itself should still finish even when every attempt fails"
+    );
+
+    let record = jobs.get(upload_id).await.expect("job record");
+    let progress = record.progress.as_ref().expect("progress tracked");
+    assert_eq!(progress.successful_blobs, 0);
+    assert_eq!(progress.invalid_blobs, 1);
+
+    let received = destination.received_requests().await.expect("requests");
+    let uploads = received
+        .iter()
+        .filter(|r| r.url.path() == "/xrpc/com.atproto.repo.uploadBlob")
+        .count();
+    assert_eq!(
+        uploads, 4,
+        "expected 2 first-pass attempts plus 2 second-pass attempts"
+    );
+
+    let _ = std::fs::remove_dir_all(&blob_dir);
+}
