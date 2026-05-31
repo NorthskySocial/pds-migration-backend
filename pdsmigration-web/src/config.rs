@@ -12,6 +12,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub workers: usize,
     pub concurrent_tasks_per_job: usize,
+    pub upload_max_attempts: u32,
     pub rate_limit_window_secs: u64,
     pub rate_limit_max_requests: u64,
     pub auth_token: Option<String>,
@@ -27,7 +28,8 @@ impl AppConfig {
         let server_port = env::var("SERVER_PORT").unwrap_or("9090".to_string());
         let worker_count = env::var("WORKER_COUNT").unwrap_or("2".to_string());
         let concurrent_tasks_per_job =
-            env::var("CONCURRENT_TASKS_PER_JOB").unwrap_or("6".to_string());
+            env::var("CONCURRENT_TASKS_PER_JOB").unwrap_or("3".to_string());
+        let upload_max_attempts = env::var("UPLOAD_MAX_ATTEMPTS").unwrap_or("3".to_string());
         let s3_endpoint = env::var("ENDPOINT").expect("ENDPOINT environment variable not set");
         let rate_limit_window_secs = env::var("RATE_LIMIT_WINDOW_SECS").unwrap_or("60".to_string());
         let rate_limit_max_requests =
@@ -38,6 +40,7 @@ impl AppConfig {
                 port: server_port.parse().unwrap(),
                 workers: worker_count.parse().unwrap(),
                 concurrent_tasks_per_job: concurrent_tasks_per_job.parse().unwrap(),
+                upload_max_attempts: upload_max_attempts.parse().unwrap(),
                 rate_limit_window_secs: rate_limit_window_secs.parse().unwrap(),
                 rate_limit_max_requests: rate_limit_max_requests.parse().unwrap(),
                 auth_token: env::var("AUTH_TOKEN").ok(),
@@ -88,6 +91,7 @@ mod tests {
                 ("SERVER_PORT", None),
                 ("WORKER_COUNT", None),
                 ("CONCURRENT_TASKS_PER_JOB", None),
+                ("UPLOAD_MAX_ATTEMPTS", None),
                 ("RATE_LIMIT_WINDOW_SECS", None),
                 ("RATE_LIMIT_MAX_REQUESTS", None),
                 ("AUTH_TOKEN", None),
@@ -97,7 +101,8 @@ mod tests {
                 let cfg = AppConfig::from_env();
                 assert_eq!(cfg.server.port, 9090);
                 assert_eq!(cfg.server.workers, 2);
-                assert_eq!(cfg.server.concurrent_tasks_per_job, 6);
+                assert_eq!(cfg.server.concurrent_tasks_per_job, 3);
+                assert_eq!(cfg.server.upload_max_attempts, 3);
                 assert_eq!(cfg.server.rate_limit_window_secs, 60);
                 assert_eq!(cfg.server.rate_limit_max_requests, 240);
                 assert!(cfg.server.auth_token.is_none());
@@ -113,6 +118,7 @@ mod tests {
                 ("SERVER_PORT", Some("8181")),
                 ("WORKER_COUNT", Some("4")),
                 ("CONCURRENT_TASKS_PER_JOB", Some("12")),
+                ("UPLOAD_MAX_ATTEMPTS", Some("7")),
                 ("RATE_LIMIT_WINDOW_SECS", Some("30")),
                 ("RATE_LIMIT_MAX_REQUESTS", Some("100")),
                 ("AUTH_TOKEN", Some("secret-token")),
@@ -123,6 +129,7 @@ mod tests {
                 assert_eq!(cfg.server.port, 8181);
                 assert_eq!(cfg.server.workers, 4);
                 assert_eq!(cfg.server.concurrent_tasks_per_job, 12);
+                assert_eq!(cfg.server.upload_max_attempts, 7);
                 assert_eq!(cfg.server.rate_limit_window_secs, 30);
                 assert_eq!(cfg.server.rate_limit_max_requests, 100);
                 assert_eq!(cfg.server.auth_token.as_deref(), Some("secret-token"));

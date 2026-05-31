@@ -18,6 +18,32 @@ use tokio::sync::RwLock;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const MAX_BACKOFF_MS: u64 = 10_000;
+const BASE_BACKOFF_MS: u64 = 250;
+const BACKOFF_JITTER_MS: u64 = 250;
+
+fn backoff_base_ms(attempt: u32) -> u64 {
+    let shift = attempt.min(6);
+    BASE_BACKOFF_MS
+        .saturating_mul(1u64 << shift)
+        .min(MAX_BACKOFF_MS)
+}
+
+fn backoff_jitter_ms(max: u64) -> u64 {
+    if max == 0 {
+        return 0;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    nanos % max
+}
+
+fn backoff_delay(attempt: u32) -> Duration {
+    Duration::from_millis(backoff_base_ms(attempt) + backoff_jitter_ms(BACKOFF_JITTER_MS))
+}
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -45,12 +71,8 @@ pub enum JobStatus {
 pub struct JobProgress {
     #[schema(example = 1)]
     pub successful_blobs: u64,
-    #[schema(example = json!(["550e8400-e29b-41d4-a716-446655440000"]))]
-    pub successful_blobs_ids: Vec<String>,
     #[schema(example = 1)]
     pub invalid_blobs: u64,
-    #[schema(example = json!(["550e8400-e29b-41d4-a716-446655440001"]))]
-    pub invalid_blob_ids: Vec<String>,
     #[schema(example = 2)]
     pub total: Option<u64>,
 }
@@ -76,9 +98,7 @@ pub struct JobRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = json!({
             "successful_blobs": 99,
-            "successful_blobs_ids": ["550e8400-e29b-41d4-a716-446655440000"],
             "invalid_blobs": 1,
-            "invalid_blob_ids": ["550e8400-e29b-41d4-a716-446655440001"],
             "total": 100
         }))]
     pub progress: Option<JobProgress>,
@@ -140,20 +160,18 @@ impl JobState {
         }
     }
 
-    pub fn record_success(&mut self, id: Uuid, blob_id: String) {
+    pub fn record_success(&mut self, id: Uuid) {
         if let Some(r) = self.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
                 progress.successful_blobs += 1;
-                progress.successful_blobs_ids.push(blob_id);
             }
         }
     }
 
-    pub fn record_failure(&mut self, id: Uuid, blob_id: String) {
+    pub fn record_failure(&mut self, id: Uuid) {
         if let Some(r) = self.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
                 progress.invalid_blobs += 1;
-                progress.invalid_blob_ids.push(blob_id);
             }
         }
     }
@@ -176,16 +194,18 @@ impl JobManager {
         &self,
         request: UploadBlobsRequest,
         concurrent_tasks: usize,
+        max_attempts: u32,
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
         let pds_host = request.pds_host.clone();
         tracing::info!(
-            "[{}] Spawning upload_blobs job {} for {} (concurrency={})",
+            "[{}] Spawning upload_blobs job {} for {} (concurrency={}, max_attempts={})",
             did,
             id,
             pds_host,
-            concurrent_tasks
+            concurrent_tasks,
+            max_attempts
         );
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
@@ -201,7 +221,9 @@ impl JobManager {
                 st.set_running(id);
             }
 
-            let result = upload_blobs_api_job(id, state.clone(), request, concurrent_tasks).await;
+            let result =
+                upload_blobs_api_job(id, state.clone(), request, concurrent_tasks, max_attempts)
+                    .await;
             {
                 let mut st = state.write().await;
                 st.finalize(id, result);
@@ -340,14 +362,23 @@ async fn export_blobs_api_job(
 
                     {
                         let mut st = state.write().await;
-                        st.record_success(id, blob_cid_str.clone());
+                        st.record_success(id);
                     }
                 }
                 Err(e) => {
-                    handle_rate_limit_error(&e, &blob_cid_str, did, JobKind::ExportBlobs).await;
+                    if matches!(e, MigrationError::RateLimitReached) {
+                        wait_for_rate_limit(did, JobKind::ExportBlobs).await;
+                    }
+                    tracing::error!(
+                        "[{}][{}] Failed to process blob {}: {}",
+                        did,
+                        JobKind::ExportBlobs,
+                        blob_cid_str,
+                        e
+                    );
                     {
                         let mut st = state.write().await;
-                        st.record_failure(id, blob_cid_str.clone());
+                        st.record_failure(id);
                     }
                 }
             }
@@ -362,6 +393,7 @@ async fn upload_blobs_api_job(
     state: Arc<RwLock<JobState>>,
     req: UploadBlobsRequest,
     concurrent_tasks: usize,
+    max_attempts: u32,
 ) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
@@ -396,139 +428,167 @@ async fn upload_blobs_api_job(
         st.update_total(id, blobs_in_dir.len() as u64);
     }
 
-    // process blobs in parallel
+    // process blobs in parallel and record results in a stream
     let did_owned = did.to_string();
-    futures_util::stream::iter(blobs_in_dir.into_iter())
+    let mut first_pass_stream = futures_util::stream::iter(blobs_in_dir.into_iter())
         .map(|blob| {
             let agent = agent.clone();
-            let state = state.clone();
             let did_inner = did_owned.clone();
             async move {
-                let file = match tokio::fs::read(blob.path()).await {
+                let path = blob.path();
+                let blob_cid_str = blob.file_name().to_string_lossy().to_string();
+                let file = match tokio::fs::read(&path).await {
                     Ok(data) => data,
                     Err(error) => {
                         tracing::error!("[{}] {}", did_inner, error.to_string());
-                        let blob_cid_str = blob.file_name().to_string_lossy().to_string();
-                        let mut st = state.write().await;
-                        st.record_failure(id, blob_cid_str);
-                        return;
+                        return (
+                            path,
+                            blob_cid_str,
+                            Err(MigrationError::Runtime {
+                                message: "Failed to read blob file".to_string(),
+                            }),
+                        );
                     }
                 };
-                let blob_cid_str = blob.file_name().to_string_lossy().to_string();
                 tracing::info!(
                     "[{}] Uploading blob: {:?} with size {}...",
                     did_inner,
                     blob_cid_str,
                     file.len()
                 );
-                // we try to upload each blob once, with one retry if first one fails
-                // to account for transient issues on the PDS side (e.g. temporary S3 timeouts)
-                let upload_result = match upload_blob_v2(&agent, file.clone(), &blob_cid_str).await
-                {
-                    Ok(()) => Ok(()),
-                    Err(first_err) => {
-                        tracing::warn!(
-                            "[{}][{}] First upload attempt failed for blob {} (error: {}); retrying once",
-                            did_inner,
-                            JobKind::UploadBlobs,
-                            blob_cid_str,
-                            first_err
-                        );
-                        wait_if_rate_limited(&first_err, &did_inner, JobKind::UploadBlobs).await;
-
-                        // retry!
-                        match upload_blob_v2(&agent, file, &blob_cid_str).await {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "[{}][{}] Retry succeeded for blob {} (initial error: {})",
-                                    did_inner,
-                                    JobKind::UploadBlobs,
-                                    blob_cid_str,
-                                    first_err
-                                );
-                                Ok(())
-                            }
-                            Err(second_err) => {
-                                tracing::error!(
-                                    "[{}][{}] Retry failed for blob {} (initial error: {}; retry error: {})",
-                                    did_inner,
-                                    JobKind::UploadBlobs,
-                                    blob_cid_str,
-                                    first_err,
-                                    second_err
-                                );
-                                Err(second_err)
-                            }
-                        }
-                    }
-                };
-
-                match upload_result {
-                    Ok(()) => {
-                        let mut st = state.write().await;
-                        st.record_success(id, blob_cid_str.clone());
-                    }
-                    Err(e) => {
-                        handle_rate_limit_error(
-                            &e,
-                            &blob_cid_str,
-                            &did_inner,
-                            JobKind::UploadBlobs,
-                        )
+                let result =
+                    upload_blob_with_retries(&agent, file, &blob_cid_str, &did_inner, max_attempts)
                         .await;
-                        let mut st = state.write().await;
-                        st.record_failure(id, blob_cid_str.clone());
-                    }
-                }
+                (path, blob_cid_str, result)
             }
         })
-        .buffer_unordered(concurrent_tasks)
-        .collect::<Vec<_>>()
-        .await;
+        .buffer_unordered(concurrent_tasks);
+
+    // collect results of the first pass as soon as they arrive,
+    // and track failures for a second-pass restry
+    let mut failed: Vec<(std::path::PathBuf, String)> = Vec::new();
+    while let Some((path, blob_cid_str, result)) = first_pass_stream.next().await {
+        match result {
+            Ok(()) => {
+                let mut st = state.write().await;
+                st.record_success(id);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "[{}][{}] Blob {} failed first pass: {}",
+                    did,
+                    JobKind::UploadBlobs,
+                    blob_cid_str,
+                    e
+                );
+                failed.push((path, blob_cid_str));
+            }
+        }
+    }
+
+    // second pass: retry the still-failed blobs sequentially one more time
+    if !failed.is_empty() {
+        tracing::info!(
+            "[{}][{}] Re-attempting {} failed blob(s) sequentially",
+            did,
+            JobKind::UploadBlobs,
+            failed.len()
+        );
+        for (path, blob_cid_str) in failed {
+            let file = match tokio::fs::read(&path).await {
+                Ok(data) => data,
+                Err(error) => {
+                    tracing::error!("[{}] {}", did, error.to_string());
+                    let mut st = state.write().await;
+                    st.record_failure(id);
+                    continue;
+                }
+            };
+            match upload_blob_v2(&agent, file, &blob_cid_str).await {
+                Ok(()) => {
+                    tracing::info!(
+                        "[{}][{}] Second pass succeeded for blob {}",
+                        did,
+                        JobKind::UploadBlobs,
+                        blob_cid_str
+                    );
+                    let mut st = state.write().await;
+                    st.record_success(id);
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "[{}][{}] Second pass failed for blob {}: {}",
+                        did,
+                        JobKind::UploadBlobs,
+                        blob_cid_str,
+                        e
+                    );
+                    let mut st = state.write().await;
+                    st.record_failure(id);
+                }
+            }
+        }
+    }
 
     tracing::info!("[{}] Finished uploading blobs", did);
     Ok(())
 }
 
-async fn handle_rate_limit_error(
-    error: &MigrationError,
-    blob_id: &str,
+/// Upload a single blob, retrying transient failures with exponential backoff.
+async fn upload_blob_with_retries(
+    agent: &bsky_sdk::BskyAgent,
+    file: Vec<u8>,
+    blob_cid: &str,
     did: &str,
-    operation: JobKind,
-) {
-    match error {
-        MigrationError::RateLimitReached => {
-            wait_if_rate_limited(error, did, operation.clone()).await;
-        }
-        _ => {
-            tracing::error!(
-                "[{}][{}] Unexpected error when processing blob: {}",
-                did,
-                operation,
-                error.to_string()
-            );
+    max_attempts: u32,
+) -> Result<(), MigrationError> {
+    let mut attempt: u32 = 1;
+    let mut rate_limit_waits: u32 = 0;
+    loop {
+        match upload_blob_v2(agent, file.clone(), blob_cid).await {
+            Ok(()) => return Ok(()),
+            Err(MigrationError::RateLimitReached) => {
+                if rate_limit_waits >= max_attempts.max(1) {
+                    tracing::error!(
+                        "[{}][{}] Rate limit retries exhausted for blob {}",
+                        did,
+                        JobKind::UploadBlobs,
+                        blob_cid
+                    );
+                    return Err(MigrationError::RateLimitReached);
+                }
+                rate_limit_waits += 1;
+                wait_for_rate_limit(did, JobKind::UploadBlobs).await;
+            }
+            Err(e) => {
+                if !matches!(e, MigrationError::Upstream { .. }) || attempt >= max_attempts {
+                    return Err(e);
+                }
+                let delay = backoff_delay(attempt);
+                tracing::warn!(
+                    "[{}][{}] Upload attempt {} failed for blob {} (error: {}); retrying in {:?}",
+                    did,
+                    JobKind::UploadBlobs,
+                    attempt,
+                    blob_cid,
+                    e,
+                    delay
+                );
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+            }
         }
     }
-    tracing::error!(
-        "[{}][{}] Failed to process blob {} with error: {}",
-        did,
-        operation,
-        blob_id,
-        error
-    );
 }
 
-/// Sleeps for the standard rate-limit cooldown when `error` is
-/// `MigrationError::RateLimitReached`. No-op for any other error variant.
-async fn wait_if_rate_limited(error: &MigrationError, did: &str, operation: JobKind) {
-    if matches!(error, MigrationError::RateLimitReached) {
-        tracing::error!(
-            "[{}][{}] Rate limit reached, waiting 5 minutes",
-            did,
-            operation
-        );
-        tokio::time::sleep(Duration::from_secs(300)).await;
-    }
+/// Sleep for the standard rate-limit cooldown
+async fn wait_for_rate_limit(did: &str, operation: JobKind) {
+    tracing::error!(
+        "[{}][{}] Rate limit reached, waiting 5 minutes",
+        did,
+        operation
+    );
+    tokio::time::sleep(Duration::from_secs(300)).await;
 }
 
 #[cfg(test)]
@@ -551,8 +611,6 @@ mod tests {
         let progress = record.progress.unwrap();
         assert_eq!(progress.successful_blobs, 0);
         assert_eq!(progress.invalid_blobs, 0);
-        assert!(progress.successful_blobs_ids.is_empty());
-        assert!(progress.invalid_blob_ids.is_empty());
         assert!(progress.total.is_none());
     }
 
@@ -631,13 +689,12 @@ mod tests {
         let record = JobRecord::new(id, JobKind::ExportBlobs);
         state.records.insert(id, record);
 
-        state.record_success(id, "blob1".to_string());
-        state.record_success(id, "blob2".to_string());
+        state.record_success(id);
+        state.record_success(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
         assert_eq!(progress.successful_blobs, 2);
-        assert_eq!(progress.successful_blobs_ids, vec!["blob1", "blob2"]);
     }
 
     #[test]
@@ -647,13 +704,12 @@ mod tests {
         let record = JobRecord::new(id, JobKind::ExportBlobs);
         state.records.insert(id, record);
 
-        state.record_failure(id, "bad_blob1".to_string());
-        state.record_failure(id, "bad_blob2".to_string());
+        state.record_failure(id);
+        state.record_failure(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
         assert_eq!(progress.invalid_blobs, 2);
-        assert_eq!(progress.invalid_blob_ids, vec!["bad_blob1", "bad_blob2"]);
     }
 
     #[test]
@@ -664,11 +720,11 @@ mod tests {
         state.records.insert(id, record);
 
         state.update_total(id, 5);
-        state.record_success(id, "ok1".to_string());
-        state.record_success(id, "ok2".to_string());
-        state.record_success(id, "ok3".to_string());
-        state.record_failure(id, "fail1".to_string());
-        state.record_failure(id, "fail2".to_string());
+        state.record_success(id);
+        state.record_success(id);
+        state.record_success(id);
+        state.record_failure(id);
+        state.record_failure(id);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
@@ -687,8 +743,8 @@ mod tests {
     #[test]
     fn test_job_state_record_success_failure_unknown_id_is_noop() {
         let mut state = JobState::default();
-        state.record_success(Uuid::new_v4(), "x".to_string());
-        state.record_failure(Uuid::new_v4(), "y".to_string());
+        state.record_success(Uuid::new_v4());
+        state.record_failure(Uuid::new_v4());
         state.update_total(Uuid::new_v4(), 1);
         assert!(state.records.is_empty());
     }
@@ -714,20 +770,37 @@ mod tests {
         assert!(matches!(got.kind, JobKind::UploadBlobs));
     }
 
-    #[actix_rt::test]
-    async fn test_wait_if_rate_limited_noop_for_non_rate_limit() {
-        let start = std::time::Instant::now();
-        wait_if_rate_limited(
-            &MigrationError::Upstream {
-                message: "boom".to_string(),
-            },
-            "did:test",
-            JobKind::UploadBlobs,
-        )
-        .await;
-        assert!(
-            start.elapsed() < Duration::from_secs(1),
-            "should not sleep for non-rate-limit errors"
-        );
+    #[test]
+    fn test_backoff_base_ms_is_exponential_and_capped() {
+        assert_eq!(backoff_base_ms(0), BASE_BACKOFF_MS);
+        assert_eq!(backoff_base_ms(1), BASE_BACKOFF_MS * 2);
+        assert_eq!(backoff_base_ms(2), BASE_BACKOFF_MS * 4);
+        assert_eq!(backoff_base_ms(3), BASE_BACKOFF_MS * 8);
+        assert_eq!(backoff_base_ms(20), MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn test_backoff_base_ms_monotonic_non_decreasing() {
+        let mut prev = 0;
+        for attempt in 0..12 {
+            let current = backoff_base_ms(attempt);
+            assert!(current >= prev, "backoff should never decrease");
+            prev = current;
+        }
+    }
+
+    #[test]
+    fn test_backoff_jitter_within_bounds() {
+        for _ in 0..1000 {
+            assert!(backoff_jitter_ms(BACKOFF_JITTER_MS) < BACKOFF_JITTER_MS);
+        }
+        assert_eq!(backoff_jitter_ms(0), 0);
+    }
+
+    #[test]
+    fn test_backoff_delay_includes_base() {
+        let delay = backoff_delay(2);
+        assert!(delay >= Duration::from_millis(backoff_base_ms(2)));
+        assert!(delay < Duration::from_millis(backoff_base_ms(2) + BACKOFF_JITTER_MS));
     }
 }

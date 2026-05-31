@@ -11,6 +11,9 @@ publish = true
 repository = "https://github.com/NorthskySocial/pds-migration"
 description = "Common framework for PDS Migration"
 
+[lib]
+doctest = false
+
 [dependencies]
 serde = { workspace = true }
 bsky-sdk = { workspace = true }

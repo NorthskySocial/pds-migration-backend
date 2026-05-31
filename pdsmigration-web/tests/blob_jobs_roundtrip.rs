@@ -101,6 +101,7 @@ async fn job_manager_blob_roundtrip() {
                 token: "destination-jwt".to_string(),
             },
             1,
+            4,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");

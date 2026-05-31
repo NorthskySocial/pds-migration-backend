@@ -9,6 +9,8 @@ use ipld_core::ipld::Ipld;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+const DEFAULT_BLOB_REQUEST_TIMEOUT_SECS: u64 = 120;
+
 /// Shared HTTP client for all blob upload/download requests.
 /// reqwest holds a connection pool internally to improve performance by reusing
 /// connections and avoiding setup overhead
@@ -18,9 +20,20 @@ fn blob_http_client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .pool_idle_timeout(Duration::from_secs(90))
             .tcp_keepalive(Duration::from_secs(60))
+            .timeout(blob_request_timeout())
             .build()
             .expect("failed to build shared blob HTTP client")
     })
+}
+
+/// Resolve the blob request timeout from the `BLOB_REQUEST_TIMEOUT_SECS`
+/// environment variable, falling back to the default if not set or invalid.
+fn blob_request_timeout() -> Duration {
+    let secs = std::env::var("BLOB_REQUEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_BLOB_REQUEST_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 #[tracing::instrument(skip(agent))]
@@ -199,34 +212,28 @@ pub async fn upload_blob_v2(
                     Ok(())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
+                    let status = output.status();
+                    let body = output.text().await.unwrap_or_default();
                     tracing::error!(
-                        "[{}] BadRequest Error uploading blob {}: {:?}",
+                        "[{}] BadRequest Error uploading blob {} (status {}): {}",
                         did_str,
                         blob_id,
-                        output
+                        status,
+                        body
                     );
-                    tracing::error!(
-                        "[{}] Response body for blob {}: {:?}",
-                        did_str,
-                        blob_id,
-                        output.text().await
-                    );
-                    Err(MigrationError::Upstream {
+                    Err(MigrationError::BadRequest {
                         message: "BadRequest uploading blob".to_string(),
                     })
                 }
                 _ => {
+                    let status = output.status();
+                    let body = output.text().await.unwrap_or_default();
                     tracing::error!(
-                        "[{}] Runtime Error uploading blob {}: {:?}",
+                        "[{}] Runtime Error uploading blob {} (status {}): {}",
                         did_str,
                         blob_id,
-                        output
-                    );
-                    tracing::error!(
-                        "[{}] Response body for blob {}: {:?}",
-                        did_str,
-                        blob_id,
-                        output.text().await
+                        status,
+                        body
                     );
                     Err(MigrationError::Upstream {
                         message: "Runtime Error uploading blob".to_string(),
@@ -235,15 +242,27 @@ pub async fn upload_blob_v2(
             }
         }
         Err(e) => {
-            tracing::error!(
-                "[{}] Unexpected Error uploading blob {}: {:?}",
-                did_str,
-                blob_id,
-                e
-            );
-            Err(MigrationError::Runtime {
-                message: "Unexpected Error uploading blob".to_string(),
-            })
+            if e.is_timeout() || e.is_connect() || e.is_request() {
+                tracing::error!(
+                    "[{}] Transport Error uploading blob {}: {:?}",
+                    did_str,
+                    blob_id,
+                    e
+                );
+                Err(MigrationError::Upstream {
+                    message: "Transport Error uploading blob".to_string(),
+                })
+            } else {
+                tracing::error!(
+                    "[{}] Unexpected Error uploading blob {}: {:?}",
+                    did_str,
+                    blob_id,
+                    e
+                );
+                Err(MigrationError::Runtime {
+                    message: "Unexpected Error uploading blob".to_string(),
+                })
+            }
         }
     }
 }

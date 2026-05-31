@@ -6,6 +6,8 @@ pub enum MigrationError {
     Validation { field: String },
     #[display("Authentication error")]
     Authentication { message: String },
+    #[display("Bad request: {message}")]
+    BadRequest { message: String },
     #[display("Upstream error: {message}")]
     Upstream { message: String },
     #[display("Unexpected error occurred: {message}")]
