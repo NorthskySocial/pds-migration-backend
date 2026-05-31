@@ -212,34 +212,28 @@ pub async fn upload_blob_v2(
                     Ok(())
                 }
                 reqwest::StatusCode::BAD_REQUEST => {
+                    let status = output.status();
+                    let body = output.text().await.unwrap_or_default();
                     tracing::error!(
-                        "[{}] BadRequest Error uploading blob {}: {:?}",
+                        "[{}] BadRequest Error uploading blob {} (status {}): {}",
                         did_str,
                         blob_id,
-                        output
-                    );
-                    tracing::error!(
-                        "[{}] Response body for blob {}: {:?}",
-                        did_str,
-                        blob_id,
-                        output.text().await
+                        status,
+                        body
                     );
                     Err(MigrationError::BadRequest {
                         message: "BadRequest uploading blob".to_string(),
                     })
                 }
                 _ => {
+                    let status = output.status();
+                    let body = output.text().await.unwrap_or_default();
                     tracing::error!(
-                        "[{}] Runtime Error uploading blob {}: {:?}",
+                        "[{}] Runtime Error uploading blob {} (status {}): {}",
                         did_str,
                         blob_id,
-                        output
-                    );
-                    tracing::error!(
-                        "[{}] Response body for blob {}: {:?}",
-                        did_str,
-                        blob_id,
-                        output.text().await
+                        status,
+                        body
                     );
                     Err(MigrationError::Upstream {
                         message: "Runtime Error uploading blob".to_string(),
