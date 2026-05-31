@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-const MAX_BACKOFF_MS: u64 = 30_000;
+const MAX_BACKOFF_MS: u64 = 10_000;
 const BASE_BACKOFF_MS: u64 = 500;
 const BACKOFF_JITTER_MS: u64 = 250;
 
