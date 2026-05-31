@@ -66,7 +66,7 @@ pub async fn enqueue_upload_blobs_job_api(
         .spawn_upload_blobs(
             UploadBlobsRequest::from(req_inner),
             config.server.concurrent_tasks_per_job,
-            config.server.upload_max_retries,
+            config.server.upload_max_attempts,
         )
         .await?;
     tracing::info!("[{}] Enqueued upload-blobs job {}", did, id);

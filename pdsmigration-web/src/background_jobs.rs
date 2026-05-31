@@ -19,7 +19,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 const MAX_BACKOFF_MS: u64 = 10_000;
-const BASE_BACKOFF_MS: u64 = 500;
+const BASE_BACKOFF_MS: u64 = 250;
 const BACKOFF_JITTER_MS: u64 = 250;
 
 fn backoff_base_ms(attempt: u32) -> u64 {
@@ -202,18 +202,18 @@ impl JobManager {
         &self,
         request: UploadBlobsRequest,
         concurrent_tasks: usize,
-        max_retries: u32,
+        max_attempts: u32,
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
         let pds_host = request.pds_host.clone();
         tracing::info!(
-            "[{}] Spawning upload_blobs job {} for {} (concurrency={}, max_retries={})",
+            "[{}] Spawning upload_blobs job {} for {} (concurrency={}, max_attempts={})",
             did,
             id,
             pds_host,
             concurrent_tasks,
-            max_retries
+            max_attempts
         );
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
@@ -230,7 +230,7 @@ impl JobManager {
             }
 
             let result =
-                upload_blobs_api_job(id, state.clone(), request, concurrent_tasks, max_retries)
+                upload_blobs_api_job(id, state.clone(), request, concurrent_tasks, max_attempts)
                     .await;
             {
                 let mut st = state.write().await;
@@ -401,7 +401,7 @@ async fn upload_blobs_api_job(
     state: Arc<RwLock<JobState>>,
     req: UploadBlobsRequest,
     concurrent_tasks: usize,
-    max_retries: u32,
+    max_attempts: u32,
 ) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
@@ -465,7 +465,7 @@ async fn upload_blobs_api_job(
                     file.len()
                 );
                 let result =
-                    upload_blob_with_retries(&agent, file, &blob_cid_str, &did_inner, max_retries)
+                    upload_blob_with_retries(&agent, file, &blob_cid_str, &did_inner, max_attempts)
                         .await;
                 (path, blob_cid_str, result)
             }
@@ -548,15 +548,15 @@ async fn upload_blob_with_retries(
     file: Vec<u8>,
     blob_cid: &str,
     did: &str,
-    max_retries: u32,
+    max_attempts: u32,
 ) -> Result<(), MigrationError> {
-    let mut attempt: u32 = 0;
+    let mut attempt: u32 = 1;
     let mut rate_limit_waits: u32 = 0;
     loop {
         match upload_blob_v2(agent, file.clone(), blob_cid).await {
             Ok(()) => return Ok(()),
             Err(MigrationError::RateLimitReached) => {
-                if rate_limit_waits >= max_retries.max(1) {
+                if rate_limit_waits >= max_attempts.max(1) {
                     tracing::error!(
                         "[{}][{}] Rate limit retries exhausted for blob {}",
                         did,
@@ -569,7 +569,7 @@ async fn upload_blob_with_retries(
                 wait_for_rate_limit(did, JobKind::UploadBlobs).await;
             }
             Err(e) => {
-                if !matches!(e, MigrationError::Upstream { .. }) || attempt >= max_retries {
+                if !matches!(e, MigrationError::Upstream { .. }) || attempt >= max_attempts {
                     return Err(e);
                 }
                 let delay = backoff_delay(attempt);
@@ -577,7 +577,7 @@ async fn upload_blob_with_retries(
                     "[{}][{}] Upload attempt {} failed for blob {} (error: {}); retrying in {:?}",
                     did,
                     JobKind::UploadBlobs,
-                    attempt + 1,
+                    attempt,
                     blob_cid,
                     e,
                     delay

@@ -117,7 +117,7 @@ async fn upload_job_retries_once_and_succeeds() {
                 token: "destination-jwt".to_string(),
             },
             1,
-            3,
+            4,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");
@@ -183,7 +183,7 @@ async fn upload_job_records_invalid_when_both_attempts_fail() {
                 token: "destination-jwt".to_string(),
             },
             1,
-            3,
+            4,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");
@@ -255,7 +255,7 @@ async fn upload_job_first_pass_exhausts_retries_then_second_pass_succeeds() {
                 token: "destination-jwt".to_string(),
             },
             1,
-            1,
+            2,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");
@@ -322,7 +322,7 @@ async fn upload_job_marks_invalid_when_first_pass_retries_and_second_pass_all_fa
                 token: "destination-jwt".to_string(),
             },
             1,
-            1,
+            2,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");

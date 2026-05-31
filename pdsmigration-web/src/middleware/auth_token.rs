@@ -122,7 +122,7 @@ mod tests {
                 port: 0,
                 workers: 1,
                 concurrent_tasks_per_job: 1,
-                upload_max_retries: 4,
+                upload_max_attempts: 4,
                 rate_limit_window_secs: 60,
                 rate_limit_max_requests: 60,
                 auth_token: token.map(|t| t.to_string()),

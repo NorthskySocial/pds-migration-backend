@@ -52,7 +52,7 @@ async fn upload_job_retries_after_request_timeout() {
                 token: "destination-jwt".to_string(),
             },
             1,
-            2,
+            3,
         )
         .await
         .expect("spawn_upload_blobs should accept the request");
