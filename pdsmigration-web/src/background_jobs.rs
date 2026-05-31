@@ -494,7 +494,7 @@ async fn upload_blobs_api_job(
         }
     }
 
-    // second pass: retry the still-failed blobs sequentially
+    // second pass: retry the still-failed blobs sequentially one more time
     if !failed.is_empty() {
         tracing::info!(
             "[{}][{}] Re-attempting {} failed blob(s) sequentially",
@@ -512,7 +512,7 @@ async fn upload_blobs_api_job(
                     continue;
                 }
             };
-            match upload_blob_with_retries(&agent, file, &blob_cid_str, did, max_retries).await {
+            match upload_blob_v2(&agent, file, &blob_cid_str).await {
                 Ok(()) => {
                     tracing::info!(
                         "[{}][{}] Second pass succeeded for blob {}",

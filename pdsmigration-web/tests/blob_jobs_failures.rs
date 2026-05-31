@@ -344,8 +344,8 @@ async fn upload_job_marks_invalid_when_first_pass_retries_and_second_pass_all_fa
         .filter(|r| r.url.path() == "/xrpc/com.atproto.repo.uploadBlob")
         .count();
     assert_eq!(
-        uploads, 4,
-        "expected 2 first-pass attempts plus 2 second-pass attempts"
+        uploads, 3,
+        "expected 2 first-pass attempts plus 1 second-pass attempt"
     );
 
     let _ = std::fs::remove_dir_all(&blob_dir);
