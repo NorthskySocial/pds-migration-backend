@@ -79,6 +79,7 @@ impl From<MigrationError> for ApiError {
     fn from(error: MigrationError) -> Self {
         match error {
             MigrationError::Validation { field } => ApiError::Validation { field },
+            MigrationError::BadRequest { message } => ApiError::Validation { field: message },
             MigrationError::Upstream { message } => ApiError::Upstream { message },
             MigrationError::Runtime { message } => ApiError::Runtime { message },
             MigrationError::RateLimitReached => ApiError::RateLimit {

@@ -211,7 +211,7 @@ pub async fn upload_blob_v2(
                         blob_id,
                         output.text().await
                     );
-                    Err(MigrationError::Upstream {
+                    Err(MigrationError::BadRequest {
                         message: "BadRequest uploading blob".to_string(),
                     })
                 }
