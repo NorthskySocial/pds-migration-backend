@@ -176,16 +176,18 @@ impl JobManager {
         &self,
         request: UploadBlobsRequest,
         concurrent_tasks: usize,
+        max_retries: u32,
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
         let pds_host = request.pds_host.clone();
         tracing::info!(
-            "[{}] Spawning upload_blobs job {} for {} (concurrency={})",
+            "[{}] Spawning upload_blobs job {} for {} (concurrency={}, max_retries={})",
             did,
             id,
             pds_host,
-            concurrent_tasks
+            concurrent_tasks,
+            max_retries
         );
         let rec = JobRecord::new(id, JobKind::UploadBlobs);
 
@@ -201,7 +203,9 @@ impl JobManager {
                 st.set_running(id);
             }
 
-            let result = upload_blobs_api_job(id, state.clone(), request, concurrent_tasks).await;
+            let result =
+                upload_blobs_api_job(id, state.clone(), request, concurrent_tasks, max_retries)
+                    .await;
             {
                 let mut st = state.write().await;
                 st.finalize(id, result);
@@ -362,6 +366,7 @@ async fn upload_blobs_api_job(
     state: Arc<RwLock<JobState>>,
     req: UploadBlobsRequest,
     concurrent_tasks: usize,
+    max_retries: u32,
 ) -> Result<(), MigrationError> {
     let agent = build_agent().await?;
     agent.configure_endpoint(req.pds_host.clone());
