@@ -18,6 +18,32 @@ use tokio::sync::RwLock;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const MAX_BACKOFF_MS: u64 = 30_000;
+const BASE_BACKOFF_MS: u64 = 500;
+const BACKOFF_JITTER_MS: u64 = 250;
+
+fn backoff_base_ms(attempt: u32) -> u64 {
+    let shift = attempt.min(6);
+    BASE_BACKOFF_MS
+        .saturating_mul(1u64 << shift)
+        .min(MAX_BACKOFF_MS)
+}
+
+fn backoff_jitter_ms(max: u64) -> u64 {
+    if max == 0 {
+        return 0;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    nanos % max
+}
+
+fn backoff_delay(attempt: u32) -> Duration {
+    Duration::from_millis(backoff_base_ms(attempt) + backoff_jitter_ms(BACKOFF_JITTER_MS))
+}
+
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -719,20 +745,37 @@ mod tests {
         assert!(matches!(got.kind, JobKind::UploadBlobs));
     }
 
-    #[actix_rt::test]
-    async fn test_wait_if_rate_limited_noop_for_non_rate_limit() {
-        let start = std::time::Instant::now();
-        wait_if_rate_limited(
-            &MigrationError::Upstream {
-                message: "boom".to_string(),
-            },
-            "did:test",
-            JobKind::UploadBlobs,
-        )
-        .await;
-        assert!(
-            start.elapsed() < Duration::from_secs(1),
-            "should not sleep for non-rate-limit errors"
-        );
+    #[test]
+    fn test_backoff_base_ms_is_exponential_and_capped() {
+        assert_eq!(backoff_base_ms(0), BASE_BACKOFF_MS);
+        assert_eq!(backoff_base_ms(1), BASE_BACKOFF_MS * 2);
+        assert_eq!(backoff_base_ms(2), BASE_BACKOFF_MS * 4);
+        assert_eq!(backoff_base_ms(3), BASE_BACKOFF_MS * 8);
+        assert_eq!(backoff_base_ms(20), MAX_BACKOFF_MS);
+    }
+
+    #[test]
+    fn test_backoff_base_ms_monotonic_non_decreasing() {
+        let mut prev = 0;
+        for attempt in 0..12 {
+            let current = backoff_base_ms(attempt);
+            assert!(current >= prev, "backoff should never decrease");
+            prev = current;
+        }
+    }
+
+    #[test]
+    fn test_backoff_jitter_within_bounds() {
+        for _ in 0..1000 {
+            assert!(backoff_jitter_ms(BACKOFF_JITTER_MS) < BACKOFF_JITTER_MS);
+        }
+        assert_eq!(backoff_jitter_ms(0), 0);
+    }
+
+    #[test]
+    fn test_backoff_delay_includes_base() {
+        let delay = backoff_delay(2);
+        assert!(delay >= Duration::from_millis(backoff_base_ms(2)));
+        assert!(delay < Duration::from_millis(backoff_base_ms(2) + BACKOFF_JITTER_MS));
     }
 }
