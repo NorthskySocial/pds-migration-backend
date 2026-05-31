@@ -242,15 +242,27 @@ pub async fn upload_blob_v2(
             }
         }
         Err(e) => {
-            tracing::error!(
-                "[{}] Unexpected Error uploading blob {}: {:?}",
-                did_str,
-                blob_id,
-                e
-            );
-            Err(MigrationError::Runtime {
-                message: "Unexpected Error uploading blob".to_string(),
-            })
+            if e.is_timeout() || e.is_connect() || e.is_request() {
+                tracing::error!(
+                    "[{}] Transport Error uploading blob {}: {:?}",
+                    did_str,
+                    blob_id,
+                    e
+                );
+                Err(MigrationError::Upstream {
+                    message: "Transport Error uploading blob".to_string(),
+                })
+            } else {
+                tracing::error!(
+                    "[{}] Unexpected Error uploading blob {}: {:?}",
+                    did_str,
+                    blob_id,
+                    e
+                );
+                Err(MigrationError::Runtime {
+                    message: "Unexpected Error uploading blob".to_string(),
+                })
+            }
         }
     }
 }
