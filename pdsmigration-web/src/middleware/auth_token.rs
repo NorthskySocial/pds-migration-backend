@@ -107,3 +107,176 @@ fn is_authorized(headers: &HeaderMap, expected: &str) -> bool {
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AppConfig, ExternalServices, ServerConfig};
+    use actix_web::http::header::{HeaderName, HeaderValue};
+    use actix_web::http::StatusCode;
+    use actix_web::{test as actix_test, web, App, HttpResponse};
+
+    fn config_with_token(token: Option<&str>) -> AppConfig {
+        AppConfig {
+            server: ServerConfig {
+                port: 0,
+                workers: 1,
+                concurrent_tasks_per_job: 1,
+                rate_limit_window_secs: 60,
+                rate_limit_max_requests: 60,
+                auth_token: token.map(|t| t.to_string()),
+            },
+            external_services: ExternalServices {
+                s3_endpoint: "http://test-s3.example.com".to_string(),
+            },
+        }
+    }
+
+    async fn ok_handler() -> HttpResponse {
+        HttpResponse::Ok().finish()
+    }
+
+    #[test]
+    fn is_bypass_path_allows_documented_routes() {
+        assert!(is_bypass_path("/health"));
+        assert!(is_bypass_path("/metrics"));
+        assert!(is_bypass_path("/swagger-ui/"));
+        assert!(is_bypass_path("/swagger-ui/index.html"));
+        assert!(is_bypass_path("/api-docs/openapi.json"));
+    }
+
+    #[test]
+    fn is_bypass_path_rejects_other_routes() {
+        assert!(!is_bypass_path("/"));
+        assert!(!is_bypass_path("/jobs"));
+        assert!(!is_bypass_path("/create-account"));
+        assert!(!is_bypass_path("/health/extra"));
+    }
+
+    #[test]
+    fn is_authorized_accepts_matching_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-auth-token"),
+            HeaderValue::from_static("expected-token"),
+        );
+        assert!(is_authorized(&headers, "expected-token"));
+    }
+
+    #[test]
+    fn is_authorized_rejects_missing_header() {
+        let headers = HeaderMap::new();
+        assert!(!is_authorized(&headers, "expected-token"));
+    }
+
+    #[test]
+    fn is_authorized_rejects_wrong_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-auth-token"),
+            HeaderValue::from_static("bad-token"),
+        );
+        assert!(!is_authorized(&headers, "expected-token"));
+    }
+
+    #[actix_rt::test]
+    async fn middleware_allows_request_when_no_token_configured() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(None)))
+                .wrap(AuthToken::new())
+                .route("/protected", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/protected")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_blocks_when_token_missing() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(Some("expected"))))
+                .wrap(AuthToken::new())
+                .route("/protected", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/protected")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_allows_when_token_matches() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(Some("expected"))))
+                .wrap(AuthToken::new())
+                .route("/protected", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("X-Auth-Token", "expected"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_blocks_when_token_mismatched() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(Some("expected"))))
+                .wrap(AuthToken::new())
+                .route("/protected", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/protected")
+            .insert_header(("X-Auth-Token", "wrong"))
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_bypasses_health_without_token() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(Some("expected"))))
+                .wrap(AuthToken::new())
+                .route("/health", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get().uri("/health").to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_allows_when_no_config_data_attached() {
+        let app = actix_test::init_service(
+            App::new()
+                .wrap(AuthToken::new())
+                .route("/protected", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/protected")
+            .to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+}

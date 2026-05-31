@@ -126,3 +126,216 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::http::StatusCode;
+    use actix_web::{test, web, App, HttpResponse};
+
+    async fn ok_handler() -> HttpResponse {
+        HttpResponse::Ok().finish()
+    }
+
+    fn test_app(
+        limiter: RateLimiter,
+    ) -> App<
+        impl actix_web::dev::ServiceFactory<
+            ServiceRequest,
+            Config = (),
+            Response = ServiceResponse<EitherBody<BoxBody>>,
+            Error = Error,
+            InitError = (),
+        >,
+    > {
+        App::new()
+            .wrap(limiter)
+            .route("/limited", web::get().to(ok_handler))
+            .route("/limited", web::post().to(ok_handler))
+            .route("/health", web::get().to(ok_handler))
+            .route("/metrics", web::get().to(ok_handler))
+            .route("/jobs", web::get().to(ok_handler))
+            .route("/jobs/{id}", web::get().to(ok_handler))
+    }
+
+    #[actix_rt::test]
+    async fn allows_requests_under_limit() {
+        let limiter = RateLimiter::new(3, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        for _ in 0..3 {
+            let req = test::TestRequest::get()
+                .uri("/limited")
+                .peer_addr("10.0.0.1:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+    }
+
+    #[actix_rt::test]
+    async fn rejects_requests_over_limit_with_429() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        for _ in 0..2 {
+            let req = test::TestRequest::get()
+                .uri("/limited")
+                .peer_addr("10.0.0.2:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        let req = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.2:1234".parse().unwrap())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[actix_rt::test]
+    async fn per_ip_budget_is_independent() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        let req_a = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.3:1111".parse().unwrap())
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req_a).await.status(),
+            StatusCode::OK
+        );
+
+        let req_b = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.4:2222".parse().unwrap())
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req_b).await.status(),
+            StatusCode::OK
+        );
+
+        let req_a2 = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.3:1111".parse().unwrap())
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req_a2).await.status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[actix_rt::test]
+    async fn window_resets_after_elapsing() {
+        let limiter = RateLimiter::new(1, Duration::from_millis(50));
+        let app = test::init_service(test_app(limiter)).await;
+
+        let req = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.5:1234".parse().unwrap())
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+
+        let req = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.5:1234".parse().unwrap())
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+
+        actix_rt::time::sleep(Duration::from_millis(80)).await;
+
+        let req = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr("10.0.0.5:1234".parse().unwrap())
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn health_endpoint_is_exempt() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        for _ in 0..10 {
+            let req = test::TestRequest::get()
+                .uri("/health")
+                .peer_addr("10.0.0.6:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+    }
+
+    #[actix_rt::test]
+    async fn metrics_endpoint_is_exempt() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        for _ in 0..10 {
+            let req = test::TestRequest::get()
+                .uri("/metrics")
+                .peer_addr("10.0.0.7:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+    }
+
+    #[actix_rt::test]
+    async fn jobs_polling_is_exempt() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+
+        for _ in 0..10 {
+            let req = test::TestRequest::get()
+                .uri("/jobs/550e8400-e29b-41d4-a716-446655440000")
+                .peer_addr("10.0.0.8:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        for _ in 0..10 {
+            let req = test::TestRequest::get()
+                .uri("/jobs")
+                .peer_addr("10.0.0.8:1234".parse().unwrap())
+                .to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+    }
+
+    #[actix_rt::test]
+    async fn limit_applies_across_http_methods_and_paths() {
+        let limiter = RateLimiter::new(2, Duration::from_secs(60));
+        let app = test::init_service(test_app(limiter)).await;
+        let ip = "10.0.0.10:1234";
+
+        let req = test::TestRequest::get()
+            .uri("/limited")
+            .peer_addr(ip.parse().unwrap())
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+
+        let req = test::TestRequest::post()
+            .uri("/limited")
+            .peer_addr(ip.parse().unwrap())
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+
+        let req = test::TestRequest::post()
+            .uri("/limited")
+            .peer_addr(ip.parse().unwrap())
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+}

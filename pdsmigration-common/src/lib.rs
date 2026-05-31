@@ -49,6 +49,18 @@ impl std::fmt::Debug for GetRepoRequest {
     }
 }
 
+/// Build a DID that's unique per process and per call so parallel integration
+/// tests across the workspace don't collide on shared filesystem paths.
+#[doc(hidden)]
+pub fn unique_did(prefix: &str) -> String {
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock went backwards")
+        .as_nanos();
+    format!("did:plc:{prefix}{pid}{nanos}")
+}
+
 /// Convert a DID into a canonical CAR filename for repository
 /// exports / imports (`<did-with-colons-replaced>.car`).
 pub fn did_to_car_filename<D: AsRef<str>>(did: D) -> String {

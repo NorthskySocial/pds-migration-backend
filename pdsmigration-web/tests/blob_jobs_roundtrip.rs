@@ -1,47 +1,18 @@
 use pdsmigration_common::{did_blobs_path, ExportBlobsRequest, UploadBlobsRequest};
 use pdsmigration_web::background_jobs::{JobManager, JobStatus};
 use serde_json::json;
-use std::time::Duration;
-use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn unique_did() -> String {
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock went backwards")
-        .as_nanos();
-    format!("did:plc:webjobroundtrip{pid}{nanos}")
-}
-
-async fn await_job(jobs: &JobManager, id: Uuid) -> JobStatus {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let record = jobs
-            .get(id)
-            .await
-            .expect("job record should exist for spawned job");
-        match record.status {
-            JobStatus::Success | JobStatus::Error => return record.status,
-            JobStatus::Queued | JobStatus::Running => {}
-        }
-        if std::time::Instant::now() >= deadline {
-            panic!(
-                "job {id} did not reach terminal status within timeout; last={:?}, error={:?}",
-                record.status, record.error
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
+mod common;
+use common::{await_job, unique_did};
 
 #[tokio::test]
 async fn job_manager_blob_roundtrip() {
     let origin = MockServer::start().await;
     let destination = MockServer::start().await;
 
-    let did = unique_did();
+    let did = unique_did("webjobroundtrip");
     let payload: &[u8] = b"fake-blob-bytes-for-job-manager-roundtrip";
     let blob_cid = "bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy";
     let record_uri = format!("at://{did}/app.bsky.feed.post/abc123");
