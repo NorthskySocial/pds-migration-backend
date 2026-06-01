@@ -3,8 +3,9 @@ use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
-    build_agent, did_blobs_path, download_blob, format_cid, login_helper, missing_blobs,
-    upload_blob_v2, ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
+    activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
+    format_cid, login_helper, missing_blobs, upload_blob_v2, ExportBlobsRequest, GetBlobRequest,
+    MigrationError, UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -298,6 +299,33 @@ async fn export_blobs_api_job(
 
     let did_blobs_path = did_blobs_path(&session.did)?;
     let did = session.did.as_str();
+
+    // on missing blob requests, the origin PDS may reject `sync` operations
+    // if the account is deactivated (expected after a successful migration),
+    // so we temporarily reactivate it to fetch missing blobs
+    let origin_was_deactivated = if req.is_missing_blob_request {
+        match agent.api.com.atproto.server.get_session().await {
+            Ok(output) => output.active == Some(false),
+            Err(error) => {
+                tracing::warn!(
+                    "[{}] Could not query origin session to check activation state: {}",
+                    did,
+                    error
+                );
+                false
+            }
+        }
+    } else {
+        false
+    };
+    if origin_was_deactivated {
+        tracing::info!(
+            "[{}] Origin reports deactivated; reactivating temporarily to download missing blobs",
+            did
+        );
+        activate_account_agent(&agent).await?;
+    }
+
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(did_blobs_path.as_path()).await {
             if e.kind() != ErrorKind::NotFound {
@@ -382,6 +410,19 @@ async fn export_blobs_api_job(
                     }
                 }
             }
+        }
+    }
+    if origin_was_deactivated {
+        tracing::info!(
+            "[{}] Restoring origin to deactivated state after missing-blob download",
+            did
+        );
+        if let Err(error) = deactivate_account(&agent).await {
+            tracing::warn!(
+                "[{}] Failed to re-deactivate origin after missing-blob download: {}",
+                did,
+                error
+            );
         }
     }
     Ok(())
