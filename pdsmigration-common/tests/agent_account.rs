@@ -19,11 +19,7 @@ async fn mount_get_session(server: &MockServer, did: &str) {
         .await;
 }
 
-async fn logged_in_agent(
-    server: &MockServer,
-    did: &str,
-    token: &str,
-) -> bsky_sdk::BskyAgent {
+async fn logged_in_agent(server: &MockServer, did: &str, token: &str) -> bsky_sdk::BskyAgent {
     let agent = build_agent().await.expect("build_agent should succeed");
     agent.configure_endpoint(server.uri());
     login_helper(&agent, &server.uri(), did, token)

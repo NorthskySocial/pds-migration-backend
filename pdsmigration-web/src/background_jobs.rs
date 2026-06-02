@@ -4,8 +4,8 @@ use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
     activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
-    format_cid, login_helper, missing_blobs, upload_blob_v2, ExportBlobsRequest, GetBlobRequest,
-    MigrationError, UploadBlobsRequest,
+    format_cid, login_helper, missing_blobs, upload_blob_v2, wait_for_rate_limit,
+    ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -145,9 +145,7 @@ impl JobState {
 
     pub fn finalize(&mut self, id: Uuid, result: Result<(), MigrationError>) {
         if let Some(r) = self.records.get_mut(&id) {
-            let elapsed_ms = r
-                .started_at
-                .map(|s| now_millis().saturating_sub(s));
+            let elapsed_ms = r.started_at.map(|s| now_millis().saturating_sub(s));
             let progress = r.progress.clone().unwrap_or_default();
             match result {
                 Ok(_) => {
@@ -426,7 +424,7 @@ async fn export_blobs_api_job(
                 }
                 Err(e) => {
                     if matches!(e, MigrationError::RateLimitReached) {
-                        wait_for_rate_limit(did, JobKind::ExportBlobs).await;
+                        wait_for_rate_limit(did, &JobKind::ExportBlobs.to_string()).await;
                     }
                     tracing::error!(
                         did = %did,
@@ -637,7 +635,7 @@ async fn upload_blob_with_retries(
                     return Err(MigrationError::RateLimitReached);
                 }
                 rate_limit_waits += 1;
-                wait_for_rate_limit(did, JobKind::UploadBlobs).await;
+                wait_for_rate_limit(did, &JobKind::UploadBlobs.to_string()).await;
             }
             Err(e) => {
                 if !matches!(e, MigrationError::Upstream { .. }) || attempt >= max_attempts {
@@ -658,16 +656,6 @@ async fn upload_blob_with_retries(
             }
         }
     }
-}
-
-/// Sleep for the standard rate-limit cooldown
-async fn wait_for_rate_limit(did: &str, operation: JobKind) {
-    tracing::error!(
-        "[{}][{}] Rate limit reached, waiting 5 minutes",
-        did,
-        operation
-    );
-    tokio::time::sleep(Duration::from_secs(300)).await;
 }
 
 #[cfg(test)]
