@@ -11,6 +11,19 @@ use std::time::Duration;
 
 const DEFAULT_BLOB_REQUEST_TIMEOUT_SECS: u64 = 120;
 
+/// Cooldown applied when an upstream PDS reports we hit its rate limit
+pub const RATE_LIMIT_COOLDOWN_SECS: u64 = 300;
+
+pub async fn wait_for_rate_limit(did: &str, operation: &str) {
+    tracing::error!(
+        did = %did,
+        operation = %operation,
+        cooldown_secs = RATE_LIMIT_COOLDOWN_SECS,
+        "Rate limit reached, waiting before retrying",
+    );
+    tokio::time::sleep(Duration::from_secs(RATE_LIMIT_COOLDOWN_SECS)).await;
+}
+
 /// Shared HTTP client for all blob upload/download requests.
 /// reqwest holds a connection pool internally to improve performance by reusing
 /// connections and avoiding setup overhead
@@ -342,5 +355,10 @@ mod tests {
         let a = blob_http_client();
         let b = blob_http_client();
         assert!(std::ptr::eq(a, b), "shared client should be a singleton");
+    }
+
+    #[test]
+    fn rate_limit_cooldown_is_five_minutes() {
+        assert_eq!(RATE_LIMIT_COOLDOWN_SECS, 300);
     }
 }

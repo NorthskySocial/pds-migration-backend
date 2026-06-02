@@ -3,8 +3,9 @@ use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
-    build_agent, did_blobs_path, download_blob, format_cid, login_helper, missing_blobs,
-    upload_blob_v2, ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
+    activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
+    format_cid, login_helper, missing_blobs, upload_blob_v2, wait_for_rate_limit,
+    ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -134,21 +135,50 @@ impl JobState {
         if let Some(r) = self.records.get_mut(&id) {
             r.status = JobStatus::Running;
             r.started_at = Some(now_millis());
+            tracing::info!(
+                job_id = %r.id,
+                kind = %r.kind,
+                "Job status: Queued -> Running",
+            );
         }
     }
 
     pub fn finalize(&mut self, id: Uuid, result: Result<(), MigrationError>) {
         if let Some(r) = self.records.get_mut(&id) {
+            let elapsed_ms = r.started_at.map(|s| now_millis().saturating_sub(s));
+            let progress = r.progress.clone().unwrap_or_default();
             match result {
                 Ok(_) => {
                     r.status = JobStatus::Success;
+                    r.finished_at = Some(now_millis());
+                    tracing::info!(
+                        job_id = %r.id,
+                        kind = %r.kind,
+                        elapsed_ms = elapsed_ms.unwrap_or(0),
+                        successful_blobs = progress.successful_blobs,
+                        invalid_blobs = progress.invalid_blobs,
+                        total = progress.total.unwrap_or(0),
+                        "Job finished: Running -> Success",
+                    );
                 }
                 Err(e) => {
+                    let msg = format!("{}", e);
                     r.status = JobStatus::Error;
-                    r.error = Some(format!("{}", e));
+                    r.error = Some(msg.clone());
+                    r.finished_at = Some(now_millis());
+                    tracing::error!(
+                        job_id = %r.id,
+                        kind = %r.kind,
+                        elapsed_ms = elapsed_ms.unwrap_or(0),
+                        successful_blobs = progress.successful_blobs,
+                        invalid_blobs = progress.invalid_blobs,
+                        total = progress.total.unwrap_or(0),
+                        error = %msg,
+                        error_debug = ?e,
+                        "Job errored: Running -> Error",
+                    );
                 }
             }
-            r.finished_at = Some(now_millis());
         }
     }
 
@@ -298,6 +328,33 @@ async fn export_blobs_api_job(
 
     let did_blobs_path = did_blobs_path(&session.did)?;
     let did = session.did.as_str();
+
+    // on missing blob requests, the origin PDS may reject `sync` operations
+    // if the account is deactivated (expected after a successful migration),
+    // so we temporarily reactivate it to fetch missing blobs
+    let origin_was_deactivated = if req.is_missing_blob_request {
+        match agent.api.com.atproto.server.get_session().await {
+            Ok(output) => output.active == Some(false),
+            Err(error) => {
+                tracing::warn!(
+                    "[{}] Could not query origin session to check activation state: {}",
+                    did,
+                    error
+                );
+                false
+            }
+        }
+    } else {
+        false
+    };
+    if origin_was_deactivated {
+        tracing::info!(
+            "[{}] Origin reports deactivated; reactivating temporarily to download missing blobs",
+            did
+        );
+        activate_account_agent(&agent).await?;
+    }
+
     if req.is_missing_blob_request {
         if let Err(e) = tokio::fs::remove_dir_all(did_blobs_path.as_path()).await {
             if e.kind() != ErrorKind::NotFound {
@@ -367,14 +424,16 @@ async fn export_blobs_api_job(
                 }
                 Err(e) => {
                     if matches!(e, MigrationError::RateLimitReached) {
-                        wait_for_rate_limit(did, JobKind::ExportBlobs).await;
+                        wait_for_rate_limit(did, &JobKind::ExportBlobs.to_string()).await;
                     }
                     tracing::error!(
-                        "[{}][{}] Failed to process blob {}: {}",
-                        did,
-                        JobKind::ExportBlobs,
-                        blob_cid_str,
-                        e
+                        did = %did,
+                        kind = %JobKind::ExportBlobs,
+                        cid = %blob_cid_str,
+                        step = "download_blob",
+                        error = %e,
+                        error_debug = ?e,
+                        "Failed to process blob",
                     );
                     {
                         let mut st = state.write().await;
@@ -382,6 +441,19 @@ async fn export_blobs_api_job(
                     }
                 }
             }
+        }
+    }
+    if origin_was_deactivated {
+        tracing::info!(
+            "[{}] Restoring origin to deactivated state after missing-blob download",
+            did
+        );
+        if let Err(error) = deactivate_account(&agent).await {
+            tracing::warn!(
+                "[{}] Failed to re-deactivate origin after missing-blob download: {}",
+                did,
+                error
+            );
         }
     }
     Ok(())
@@ -411,7 +483,12 @@ async fn upload_blobs_api_job(
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {
-            tracing::error!("[{}] {}", did, error.to_string());
+            tracing::error!(
+                did = %did,
+                path = %path.display(),
+                error = %error,
+                "Failed to read blob directory",
+            );
             return Err(MigrationError::Runtime {
                 message: "Failed to read blob directory".to_string(),
             });
@@ -558,7 +635,7 @@ async fn upload_blob_with_retries(
                     return Err(MigrationError::RateLimitReached);
                 }
                 rate_limit_waits += 1;
-                wait_for_rate_limit(did, JobKind::UploadBlobs).await;
+                wait_for_rate_limit(did, &JobKind::UploadBlobs.to_string()).await;
             }
             Err(e) => {
                 if !matches!(e, MigrationError::Upstream { .. }) || attempt >= max_attempts {
@@ -579,16 +656,6 @@ async fn upload_blob_with_retries(
             }
         }
     }
-}
-
-/// Sleep for the standard rate-limit cooldown
-async fn wait_for_rate_limit(did: &str, operation: JobKind) {
-    tracing::error!(
-        "[{}][{}] Rate limit reached, waiting 5 minutes",
-        did,
-        operation
-    );
-    tokio::time::sleep(Duration::from_secs(300)).await;
 }
 
 #[cfg(test)]

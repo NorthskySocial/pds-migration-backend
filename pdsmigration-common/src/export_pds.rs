@@ -1,8 +1,7 @@
-use crate::agent::{download_repo, login_helper};
+use crate::agent::{download_repo, login_helper, wait_for_rate_limit};
 use crate::{build_agent, repo_car_path, GetRepoRequest, MigrationError, REDACTED};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize, Serialize)]
@@ -91,9 +90,7 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
         Err(e) => {
             match e {
                 MigrationError::RateLimitReached => {
-                    tracing::error!("[{}] Rate limit reached, waiting 5 minutes", did);
-                    let five_minutes = Duration::from_secs(300);
-                    tokio::time::sleep(five_minutes).await;
+                    wait_for_rate_limit(did, "export_pds").await;
                 }
                 _ => {
                     tracing::error!("[{}] Failed to download repo", did);

@@ -1,11 +1,10 @@
-use crate::agent::{download_blob, list_all_blobs, login_helper};
+use crate::agent::{download_blob, list_all_blobs, login_helper, wait_for_rate_limit};
 use crate::{build_agent, did_blobs_path, format_cid, MigrationError, REDACTED};
 use bsky_sdk::api::types::string::Did;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::ErrorKind;
-use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize, Serialize)]
@@ -108,9 +107,7 @@ pub async fn export_all_blobs_api(
                 Err(e) => {
                     match e {
                         MigrationError::RateLimitReached => {
-                            tracing::error!("[{}] Rate limit reached, waiting 5 minutes", did);
-                            let five_minutes = Duration::from_secs(300);
-                            tokio::time::sleep(five_minutes).await;
+                            wait_for_rate_limit(did, "export_all_blobs").await;
                         }
                         _ => {
                             //todo

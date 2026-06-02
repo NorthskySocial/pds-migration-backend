@@ -112,3 +112,23 @@ pub async fn deactivate_account(agent: &BskyAgent) -> Result<(), MigrationError>
         })?;
     Ok(())
 }
+
+#[tracing::instrument(skip(agent))]
+pub async fn activate_account_agent(agent: &BskyAgent) -> Result<(), MigrationError> {
+    let did = agent.did().await.clone();
+    let did_str = did.as_ref().map(|d| d.as_str()).unwrap_or("unknown");
+    agent
+        .api
+        .com
+        .atproto
+        .server
+        .activate_account()
+        .await
+        .map_err(|error| {
+            tracing::error!("[{}] Failed to activate account: {:?}", did_str, error);
+            MigrationError::Upstream {
+                message: error.to_string(),
+            }
+        })?;
+    Ok(())
+}
