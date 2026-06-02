@@ -135,21 +135,52 @@ impl JobState {
         if let Some(r) = self.records.get_mut(&id) {
             r.status = JobStatus::Running;
             r.started_at = Some(now_millis());
+            tracing::info!(
+                job_id = %r.id,
+                kind = %r.kind,
+                "Job status: Queued -> Running",
+            );
         }
     }
 
     pub fn finalize(&mut self, id: Uuid, result: Result<(), MigrationError>) {
         if let Some(r) = self.records.get_mut(&id) {
+            let elapsed_ms = r
+                .started_at
+                .map(|s| now_millis().saturating_sub(s));
+            let progress = r.progress.clone().unwrap_or_default();
             match result {
                 Ok(_) => {
                     r.status = JobStatus::Success;
+                    r.finished_at = Some(now_millis());
+                    tracing::info!(
+                        job_id = %r.id,
+                        kind = %r.kind,
+                        elapsed_ms = elapsed_ms.unwrap_or(0),
+                        successful_blobs = progress.successful_blobs,
+                        invalid_blobs = progress.invalid_blobs,
+                        total = progress.total.unwrap_or(0),
+                        "Job finished: Running -> Success",
+                    );
                 }
                 Err(e) => {
+                    let msg = format!("{}", e);
                     r.status = JobStatus::Error;
-                    r.error = Some(format!("{}", e));
+                    r.error = Some(msg.clone());
+                    r.finished_at = Some(now_millis());
+                    tracing::error!(
+                        job_id = %r.id,
+                        kind = %r.kind,
+                        elapsed_ms = elapsed_ms.unwrap_or(0),
+                        successful_blobs = progress.successful_blobs,
+                        invalid_blobs = progress.invalid_blobs,
+                        total = progress.total.unwrap_or(0),
+                        error = %msg,
+                        error_debug = ?e,
+                        "Job errored: Running -> Error",
+                    );
                 }
             }
-            r.finished_at = Some(now_millis());
         }
     }
 
@@ -398,11 +429,13 @@ async fn export_blobs_api_job(
                         wait_for_rate_limit(did, JobKind::ExportBlobs).await;
                     }
                     tracing::error!(
-                        "[{}][{}] Failed to process blob {}: {}",
-                        did,
-                        JobKind::ExportBlobs,
-                        blob_cid_str,
-                        e
+                        did = %did,
+                        kind = %JobKind::ExportBlobs,
+                        cid = %blob_cid_str,
+                        step = "download_blob",
+                        error = %e,
+                        error_debug = ?e,
+                        "Failed to process blob",
                     );
                     {
                         let mut st = state.write().await;
@@ -452,7 +485,12 @@ async fn upload_blobs_api_job(
     match tokio::fs::read_dir(path.as_path()).await {
         Ok(output) => blob_dir = output,
         Err(error) => {
-            tracing::error!("[{}] {}", did, error.to_string());
+            tracing::error!(
+                did = %did,
+                path = %path.display(),
+                error = %error,
+                "Failed to read blob directory",
+            );
             return Err(MigrationError::Runtime {
                 message: "Failed to read blob directory".to_string(),
             });
