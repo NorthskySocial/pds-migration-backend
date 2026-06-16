@@ -6,6 +6,7 @@ use pdsmigration_common::{did_to_car_filename, repo_car_path, ExportPDSRequest, 
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
+use std::time::Instant;
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -56,6 +57,7 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
     tracing::info!("[{}] Export repository request received", did);
+    let download_start = Instant::now();
     pdsmigration_common::export_pds_api(req_inner.into())
         .await
         .map_err(|e| {
@@ -64,6 +66,11 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
                 message: e.to_string(),
             }
         })?;
+    tracing::info!(
+        "[{}] Repository download phase finished in {:.1}s, starting S3 upload",
+        did,
+        download_start.elapsed().as_secs_f64()
+    );
 
     // Upload the downloaded file to AWS S3
     let endpoint_url = env::var("ENDPOINT").map_err(|e| {
@@ -107,6 +114,20 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         key
     );
 
+    match tokio::fs::metadata(&file_path).await {
+        Ok(meta) => tracing::info!(
+            "[{}] Exported repository file size: {} bytes",
+            did,
+            meta.len()
+        ),
+        Err(e) => tracing::warn!(
+            "[{}] Failed to read exported repository file metadata: {:?}",
+            did,
+            e
+        ),
+    }
+
+    let upload_start = Instant::now();
     let body = match aws_sdk_s3::primitives::ByteStream::from_path(&file_path).await {
         Ok(body) => {
             tracing::debug!("[{}] Successfully created ByteStream from file", did);
@@ -149,10 +170,17 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     };
 
     tracing::info!(
-        "[{}] Repository exported and uploaded to S3 successfully",
-        did
+        "[{}] Repository exported and uploaded to S3 successfully (upload phase {:.1}s)",
+        did,
+        upload_start.elapsed().as_secs_f64()
     );
-    Ok(HttpResponse::Ok().finish())
+    let response = HttpResponse::Ok().finish();
+    tracing::info!(
+        "[{}] Export repository request complete, returning HTTP {}",
+        did,
+        response.status()
+    );
+    Ok(response)
 }
 
 #[cfg(test)]

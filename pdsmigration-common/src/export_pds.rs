@@ -2,6 +2,7 @@ use crate::agent::{download_repo, login_helper, wait_for_rate_limit};
 use crate::{build_agent, repo_car_path, GetRepoRequest, MigrationError, REDACTED};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize, Serialize)]
@@ -60,6 +61,9 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                     ),
                 })?;
 
+            let start = Instant::now();
+            let mut last_log = Instant::now();
+            let mut total_bytes: u64 = 0;
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(|error| {
                     tracing::error!("[{}] Failed to read stream chunk: {}", did, error);
@@ -67,12 +71,22 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                         message: "Failed to read stream chunk".to_string(),
                     }
                 })?;
+                total_bytes += chunk.len() as u64;
                 file.write_all(&chunk).await.map_err(|error| {
                     tracing::error!("[{}] Failed to write chunk to file: {}", did, error);
                     MigrationError::Runtime {
                         message: "Failed to write chunk to file".to_string(),
                     }
                 })?;
+                if last_log.elapsed() >= Duration::from_secs(10) {
+                    tracing::info!(
+                        "[{}] Export in progress: {} bytes written after {:.1}s",
+                        did,
+                        total_bytes,
+                        start.elapsed().as_secs_f64()
+                    );
+                    last_log = Instant::now();
+                }
             }
             file.flush().await.map_err(|error| {
                 tracing::error!("[{}] Failed to flush file: {}", did, error);
@@ -81,9 +95,11 @@ pub async fn export_pds_api(req: ExportPDSRequest) -> Result<(), MigrationError>
                 }
             })?;
             tracing::info!(
-                "[{}] Successfully exported repository to {}",
+                "[{}] Successfully exported repository to {} ({} bytes in {:.1}s)",
                 did,
-                path.display()
+                path.display(),
+                total_bytes,
+                start.elapsed().as_secs_f64()
             );
             return Ok(());
         }
