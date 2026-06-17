@@ -801,8 +801,55 @@ mod tests {
     use super::*;
     use pdsmigration_common::unique_did;
     use serde_json::json;
+    use std::env;
+    use std::sync::LazyLock;
+    use tokio::sync::{Mutex, MutexGuard};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct EnvGuard {
+        _guard: MutexGuard<'static, ()>,
+        previous: Vec<(String, Option<String>)>,
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (k, v) in &self.previous {
+                match v {
+                    Some(value) => env::set_var(k, value),
+                    None => env::remove_var(k),
+                }
+            }
+        }
+    }
+
+    async fn with_aws_test_env() -> EnvGuard {
+        let guard = ENV_LOCK.lock().await;
+        let vars = [
+            ("AWS_ACCESS_KEY_ID", Some("test-access-key")),
+            ("AWS_SECRET_ACCESS_KEY", Some("test-secret-key")),
+            ("AWS_EC2_METADATA_DISABLED", Some("true")),
+        ];
+
+        let previous = vars
+            .iter()
+            .map(|(k, _)| ((*k).to_string(), env::var(k).ok()))
+            .collect::<Vec<_>>();
+
+        for (k, v) in vars {
+            match v {
+                Some(value) => env::set_var(k, value),
+                None => env::remove_var(k),
+            }
+        }
+
+        EnvGuard {
+            _guard: guard,
+            previous,
+        }
+    }
 
     #[test]
     fn test_job_record_new_export_blobs() {
@@ -989,6 +1036,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_export_repo_to_s3_success() {
+        let _env_guard = with_aws_test_env().await;
         let pds = MockServer::start().await;
         let s3 = MockServer::start().await;
         let did = unique_did("jobexportreposuccess");
@@ -1030,7 +1078,7 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok(), "expected export_repo_to_s3 success");
+        assert!(result.is_ok(), "expected export_repo_to_s3 success: {result:?}");
         let uploaded = s3.received_requests().await.expect("requests recorded");
         assert!(
             uploaded.iter().any(|r| r.method.as_str() == "PUT"),
@@ -1043,6 +1091,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_export_repo_to_s3_returns_error_when_s3_upload_fails() {
+        let _env_guard = with_aws_test_env().await;
         let pds = MockServer::start().await;
         let s3 = MockServer::start().await;
         let did = unique_did("jobexportrepofail");
