@@ -2,9 +2,9 @@ use actix_web::{http::StatusCode, test, web, App};
 use pdsmigration_web::{
     api::{
         activate_account_api, create_account_api, deactivate_account_api,
-        enqueue_export_blobs_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
-        get_service_auth_api, health_check, import_pds_api, migrate_plc_api,
-        migrate_preferences_api, request_token_api,
+        enqueue_export_blobs_job_api, enqueue_export_repo_job_api, enqueue_upload_blobs_job_api,
+        export_pds_api, get_job_api, get_service_auth_api, health_check, import_pds_api,
+        migrate_plc_api, migrate_preferences_api, request_token_api,
     },
     background_jobs::JobManager,
     config::{AppConfig, ExternalServices, ServerConfig},
@@ -74,6 +74,7 @@ mod integration_tests {
                 .service(migrate_plc_api)
                 .service(get_service_auth_api)
                 .service(enqueue_export_blobs_job_api)
+                .service(enqueue_export_repo_job_api)
                 .service(enqueue_upload_blobs_job_api)
                 .service(get_job_api),
         )
@@ -476,6 +477,72 @@ mod integration_tests {
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_enqueue_export_repo_job_missing_fields() {
+        let app_config = create_test_config();
+        let job_manager = web::Data::new(JobManager::new());
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(app_config))
+                .app_data(job_manager)
+                .service(enqueue_export_repo_job_api),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/jobs/export-repo")
+            .set_json(json!({}))
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_get_existing_export_repo_job() {
+        let app_config = create_test_config();
+        let job_manager = web::Data::new(JobManager::new());
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(app_config))
+                .app_data(job_manager.clone())
+                .service(enqueue_export_repo_job_api)
+                .service(get_job_api),
+        )
+        .await;
+
+        let export_repo_request = json!({
+            "pds_host": "https://origin.pds.host",
+            "did": "did:plc:test123456789",
+            "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature"
+        });
+
+        let req = test::TestRequest::post()
+            .uri("/jobs/export-repo")
+            .set_json(&export_repo_request)
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+
+        let body = test::read_body(resp).await;
+        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let job_id = response["job_id"].as_str().unwrap();
+
+        let get_req = test::TestRequest::get()
+            .uri(&format!("/jobs/{}", job_id))
+            .to_request();
+
+        let get_resp = test::call_service(&app, get_req).await;
+        assert_eq!(get_resp.status(), StatusCode::OK);
+
+        let job_body = test::read_body(get_resp).await;
+        let job: serde_json::Value = serde_json::from_slice(&job_body).unwrap();
+        assert_eq!(job["id"].as_str().unwrap(), job_id);
     }
 
     #[actix_rt::test]

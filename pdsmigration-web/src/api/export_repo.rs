@@ -1,12 +1,14 @@
+use crate::api::EnqueueJobResponse;
+use crate::background_jobs::{export_repo_to_s3, JobManager};
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
-use actix_web::HttpResponse;
-use pdsmigration_common::{did_to_car_filename, repo_car_path, ExportPDSRequest, REDACTED};
+use crate::Json;
+use actix_web::{web, HttpResponse};
+use pdsmigration_common::{ExportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
-use std::time::Instant;
 use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
@@ -56,23 +58,6 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
 pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
-    tracing::info!("[{}] Export repository request received", did);
-    let download_start = Instant::now();
-    pdsmigration_common::export_pds_api(req_inner.into())
-        .await
-        .map_err(|e| {
-            tracing::error!("[{}] Failed to export repository: {}", did, e);
-            ApiError::Runtime {
-                message: e.to_string(),
-            }
-        })?;
-    tracing::info!(
-        "[{}] Repository download phase finished in {:.1}s, starting S3 upload",
-        did,
-        download_start.elapsed().as_secs_f64()
-    );
-
-    // Upload the downloaded file to AWS S3
     let endpoint_url = env::var("ENDPOINT").map_err(|e| {
         tracing::error!(
             "[{}] Failed to get ENDPOINT environment variable: {}",
@@ -83,97 +68,11 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
             message: e.to_string(),
         }
     })?;
-
-    tracing::debug!(
-        "[{}] Loading AWS config with endpoint: {}",
-        did,
-        endpoint_url
-    );
-    let config = aws_config::from_env()
-        .region("auto")
-        .endpoint_url(&endpoint_url)
-        .load()
-        .await;
-    let client = aws_sdk_s3::Client::new(&config);
-
-    let bucket_name = "migration".to_string();
-    let file_name = did_to_car_filename(&did);
-    let key = format!("migration/{file_name}");
-    let file_path = repo_car_path(&did).map_err(|e| {
-        tracing::error!("[{}] Failed to resolve downloads directory: {}", did, e);
-        ApiError::Runtime {
-            message: e.to_string(),
-        }
-    })?;
-
-    tracing::debug!(
-        "[{}] Uploading file {} to S3 bucket {} with key {}",
-        did,
-        file_path.display(),
-        bucket_name,
-        key
-    );
-
-    match tokio::fs::metadata(&file_path).await {
-        Ok(meta) => tracing::info!(
-            "[{}] Exported repository file size: {} bytes",
-            did,
-            meta.len()
-        ),
-        Err(e) => tracing::warn!(
-            "[{}] Failed to read exported repository file metadata: {:?}",
-            did,
-            e
-        ),
-    }
-
-    let upload_start = Instant::now();
-    let body = match aws_sdk_s3::primitives::ByteStream::from_path(&file_path).await {
-        Ok(body) => {
-            tracing::debug!("[{}] Successfully created ByteStream from file", did);
-            body
-        }
-        Err(e) => {
-            tracing::error!(
-                "[{}] Failed to create ByteStream from file {}: {:?}",
-                did,
-                file_path.display(),
-                e
-            );
-            return Err(ApiError::Runtime {
-                message: e.to_string(),
-            });
-        }
-    };
-
-    match client
-        .put_object()
-        .bucket(&bucket_name)
-        .key(&key)
-        .body(body)
-        .send()
+    export_repo_to_s3(req_inner.into(), &endpoint_url)
         .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            tracing::error!(
-                "[{}] Failed to upload to S3: bucket={}, key={}, error={:?}",
-                did,
-                bucket_name,
-                key,
-                e
-            );
-            return Err(ApiError::Runtime {
-                message: e.to_string(),
-            });
-        }
-    };
-
-    tracing::info!(
-        "[{}] Repository exported and uploaded to S3 successfully (upload phase {:.1}s)",
-        did,
-        upload_start.elapsed().as_secs_f64()
-    );
+        .map_err(|e| ApiError::Runtime {
+            message: e.to_string(),
+        })?;
     let response = HttpResponse::Ok().finish();
     tracing::info!(
         "[{}] Export repository request complete, returning HTTP {}",
@@ -181,6 +80,40 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
         response.status()
     );
     Ok(response)
+}
+
+#[utoipa::path(
+    post,
+    path = "/jobs/export-repo",
+    request_body = ExportPDSApiRequest,
+    responses(
+        (status = 202, description = "Job enqueued", body = EnqueueJobResponse, content_type = "application/json"),
+        (status = 400, description = "Invalid request", body = ApiErrorBody, content_type = "application/json"),
+        (status = 401, description = "Authentication error", body = ApiErrorBody, content_type = "application/json"),
+        (status = 429, description = "Rate limit exceeded", body = ApiErrorBody, content_type = "application/json"),
+    ),
+    tag = "pdsmigration-web"
+)]
+#[tracing::instrument(skip(jobs, config, req))]
+#[post("/jobs/export-repo")]
+pub async fn enqueue_export_repo_job_api(
+    jobs: web::Data<JobManager>,
+    config: web::Data<AppConfig>,
+    req: Json<ExportPDSApiRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let req_inner = req.into_inner();
+    let did = req_inner.did.clone();
+    tracing::info!("[{}] Enqueueing export-repo job", did);
+    let id = jobs
+        .spawn_export_repo(
+            ExportPDSRequest::from(req_inner),
+            config.external_services.s3_endpoint.clone(),
+        )
+        .await?;
+    tracing::info!("[{}] Enqueued export-repo job {}", did, id);
+    Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
+        job_id: id.to_string(),
+    }))
 }
 
 #[cfg(test)]
