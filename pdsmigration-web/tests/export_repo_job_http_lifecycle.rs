@@ -5,15 +5,63 @@ use pdsmigration_web::{
     background_jobs::JobManager,
 };
 use serde_json::json;
+use std::env;
+use std::sync::LazyLock;
 use std::time::Duration;
+use tokio::sync::{Mutex, MutexGuard};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
 use common::{create_test_config, session_body, unique_did};
 
+static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+struct EnvGuard {
+    _guard: MutexGuard<'static, ()>,
+    previous: Vec<(String, Option<String>)>,
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (k, v) in &self.previous {
+            match v {
+                Some(value) => env::set_var(k, value),
+                None => env::remove_var(k),
+            }
+        }
+    }
+}
+
+async fn with_aws_test_env() -> EnvGuard {
+    let guard = ENV_LOCK.lock().await;
+    let vars = [
+        ("AWS_ACCESS_KEY_ID", Some("test-access-key")),
+        ("AWS_SECRET_ACCESS_KEY", Some("test-secret-key")),
+        ("AWS_EC2_METADATA_DISABLED", Some("true")),
+    ];
+
+    let previous = vars
+        .iter()
+        .map(|(k, _)| ((*k).to_string(), env::var(k).ok()))
+        .collect::<Vec<_>>();
+
+    for (k, v) in vars {
+        match v {
+            Some(value) => env::set_var(k, value),
+            None => env::remove_var(k),
+        }
+    }
+
+    EnvGuard {
+        _guard: guard,
+        previous,
+    }
+}
+
 #[actix_rt::test]
 async fn export_repo_job_reaches_success_through_http_api() {
+    let _env_guard = with_aws_test_env().await;
     let pds = MockServer::start().await;
     let s3 = MockServer::start().await;
     let did = unique_did("webexportrepojob");

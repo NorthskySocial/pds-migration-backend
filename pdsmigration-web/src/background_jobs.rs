@@ -1078,7 +1078,10 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_ok(), "expected export_repo_to_s3 success: {result:?}");
+        assert!(
+            result.is_ok(),
+            "expected export_repo_to_s3 success: {result:?}"
+        );
         let uploaded = s3.received_requests().await.expect("requests recorded");
         assert!(
             uploaded.iter().any(|r| r.method.as_str() == "PUT"),
