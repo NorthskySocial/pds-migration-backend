@@ -13,20 +13,54 @@ use common::{session_body, unique_did};
 
 static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-async fn set_endpoint_env(value: Option<&str>) -> (MutexGuard<'static, ()>, Option<String>) {
+struct EnvSnapshot {
+    endpoint: Option<String>,
+    aws_access_key_id: Option<String>,
+    aws_secret_access_key: Option<String>,
+    aws_ec2_metadata_disabled: Option<String>,
+}
+
+async fn set_endpoint_env(value: Option<&str>) -> (MutexGuard<'static, ()>, EnvSnapshot) {
     let guard = ENV_LOCK.lock().await;
-    let previous = env::var("ENDPOINT").ok();
+    let previous = EnvSnapshot {
+        endpoint: env::var("ENDPOINT").ok(),
+        aws_access_key_id: env::var("AWS_ACCESS_KEY_ID").ok(),
+        aws_secret_access_key: env::var("AWS_SECRET_ACCESS_KEY").ok(),
+        aws_ec2_metadata_disabled: env::var("AWS_EC2_METADATA_DISABLED").ok(),
+    };
+
     match value {
         Some(v) => env::set_var("ENDPOINT", v),
         None => env::remove_var("ENDPOINT"),
     }
+
+    // Ensure AWS SDK auth resolution is deterministic in CI and local runs.
+    env::set_var("AWS_ACCESS_KEY_ID", "test-access-key");
+    env::set_var("AWS_SECRET_ACCESS_KEY", "test-secret-key");
+    env::set_var("AWS_EC2_METADATA_DISABLED", "true");
+
     (guard, previous)
 }
 
-fn restore_endpoint_env(previous: Option<String>) {
-    match previous {
+fn restore_endpoint_env(previous: EnvSnapshot) {
+    match previous.endpoint {
         Some(v) => env::set_var("ENDPOINT", v),
         None => env::remove_var("ENDPOINT"),
+    }
+
+    match previous.aws_access_key_id {
+        Some(v) => env::set_var("AWS_ACCESS_KEY_ID", v),
+        None => env::remove_var("AWS_ACCESS_KEY_ID"),
+    }
+
+    match previous.aws_secret_access_key {
+        Some(v) => env::set_var("AWS_SECRET_ACCESS_KEY", v),
+        None => env::remove_var("AWS_SECRET_ACCESS_KEY"),
+    }
+
+    match previous.aws_ec2_metadata_disabled {
+        Some(v) => env::set_var("AWS_EC2_METADATA_DISABLED", v),
+        None => env::remove_var("AWS_EC2_METADATA_DISABLED"),
     }
 }
 
