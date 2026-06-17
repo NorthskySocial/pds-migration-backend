@@ -3,9 +3,10 @@ use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
-    activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
-    format_cid, login_helper, missing_blobs, upload_blob_v2, wait_for_rate_limit,
-    ExportBlobsRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
+    activate_account_agent, build_agent, deactivate_account, did_blobs_path, did_to_car_filename,
+    download_blob, format_cid, login_helper, missing_blobs, repo_car_path, upload_blob_v2,
+    wait_for_rate_limit, ExportBlobsRequest, ExportPDSRequest, GetBlobRequest, MigrationError,
+    UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -13,7 +14,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use utoipa::ToSchema;
@@ -57,6 +58,7 @@ fn now_millis() -> u64 {
 pub enum JobKind {
     ExportBlobs,
     UploadBlobs,
+    ExportRepo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
@@ -283,6 +285,40 @@ impl JobManager {
                 st.set_running(id);
             }
             let result = export_blobs_api_job(id, state.clone(), request).await;
+            {
+                let mut st = state.write().await;
+                st.finalize(id, result);
+            }
+        });
+
+        Ok(id)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn spawn_export_repo(
+        &self,
+        request: ExportPDSRequest,
+        s3_endpoint: String,
+    ) -> Result<Uuid, ApiError> {
+        let id = Uuid::new_v4();
+        let did = request.did.clone();
+        let pds_host = request.pds_host.clone();
+        tracing::info!("[{}] Spawning export_repo job {} for {}", did, id, pds_host);
+        let rec = JobRecord::new(id, JobKind::ExportRepo);
+
+        {
+            let mut st = self.state.write().await;
+            st.records.insert(id, rec);
+            st.update_total(id, 1);
+        }
+
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            {
+                let mut st = state.write().await;
+                st.set_running(id);
+            }
+            let result = export_repo_api_job(id, state.clone(), request, s3_endpoint).await;
             {
                 let mut st = state.write().await;
                 st.finalize(id, result);
@@ -611,6 +647,108 @@ async fn upload_blobs_api_job(
     Ok(())
 }
 
+#[tracing::instrument(skip(state, req))]
+async fn export_repo_api_job(
+    id: Uuid,
+    state: Arc<RwLock<JobState>>,
+    req: ExportPDSRequest,
+    s3_endpoint: String,
+) -> Result<(), MigrationError> {
+    match export_repo_to_s3(req, &s3_endpoint).await {
+        Ok(()) => {
+            let mut st = state.write().await;
+            st.record_success(id);
+            Ok(())
+        }
+        Err(error) => {
+            let mut st = state.write().await;
+            st.record_failure(id);
+            Err(error)
+        }
+    }
+}
+
+#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
+pub async fn export_repo_to_s3(
+    req: ExportPDSRequest,
+    endpoint_url: &str,
+) -> Result<(), MigrationError> {
+    let did = req.did.clone();
+    tracing::info!("[{}] Export repository request received", did);
+    let download_start = Instant::now();
+    pdsmigration_common::export_pds_api(req).await?;
+    tracing::info!(
+        "[{}] Repository download phase finished in {:.1}s, starting S3 upload",
+        did,
+        download_start.elapsed().as_secs_f64()
+    );
+
+    tracing::debug!(
+        "[{}] Loading AWS config with endpoint: {}",
+        did,
+        endpoint_url
+    );
+    let config = aws_config::from_env()
+        .region("auto")
+        .endpoint_url(endpoint_url)
+        .load()
+        .await;
+    let client = aws_sdk_s3::Client::new(&config);
+
+    let bucket_name = "migration".to_string();
+    let file_name = did_to_car_filename(&did);
+    let key = format!("migration/{file_name}");
+    let file_path = repo_car_path(&did).map_err(|e| MigrationError::Runtime {
+        message: e.to_string(),
+    })?;
+
+    tracing::debug!(
+        "[{}] Uploading file {} to S3 bucket {} with key {}",
+        did,
+        file_path.display(),
+        bucket_name,
+        key
+    );
+
+    match tokio::fs::metadata(&file_path).await {
+        Ok(meta) => tracing::info!(
+            "[{}] Exported repository file size: {} bytes",
+            did,
+            meta.len()
+        ),
+        Err(e) => tracing::warn!(
+            "[{}] Failed to read exported repository file metadata: {:?}",
+            did,
+            e
+        ),
+    }
+
+    let upload_start = Instant::now();
+    let body = aws_sdk_s3::primitives::ByteStream::from_path(&file_path)
+        .await
+        .map_err(|e| MigrationError::Runtime {
+            message: e.to_string(),
+        })?;
+
+    client
+        .put_object()
+        .bucket(&bucket_name)
+        .key(&key)
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| MigrationError::Runtime {
+            message: e.to_string(),
+        })?;
+
+    tracing::info!(
+        "[{}] Repository exported and uploaded to S3 successfully (upload phase {:.1}s)",
+        did,
+        upload_start.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
 /// Upload a single blob, retrying transient failures with exponential backoff.
 async fn upload_blob_with_retries(
     agent: &bsky_sdk::BskyAgent,
@@ -661,6 +799,10 @@ async fn upload_blob_with_retries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pdsmigration_common::unique_did;
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn test_job_record_new_export_blobs() {
@@ -687,6 +829,14 @@ mod tests {
         let record = JobRecord::new(id, JobKind::UploadBlobs);
 
         assert!(matches!(record.kind, JobKind::UploadBlobs));
+    }
+
+    #[test]
+    fn test_job_record_new_export_repo() {
+        let id = Uuid::new_v4();
+        let record = JobRecord::new(id, JobKind::ExportRepo);
+
+        assert!(matches!(record.kind, JobKind::ExportRepo));
     }
 
     #[test]
@@ -835,6 +985,102 @@ mod tests {
         let got = mgr.get(id).await.unwrap();
         assert_eq!(got.id, id.to_string());
         assert!(matches!(got.kind, JobKind::UploadBlobs));
+    }
+
+    #[actix_rt::test]
+    async fn test_export_repo_to_s3_success() {
+        let pds = MockServer::start().await;
+        let s3 = MockServer::start().await;
+        let did = unique_did("jobexportreposuccess");
+        let payload: &[u8] = b"export-repo-bytes";
+
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.server.getSession"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "did": did,
+                "handle": "anothermigration.bsky.social",
+                "active": true
+            })))
+            .mount(&pds)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.sync.getRepo"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("ratelimit-remaining", "1000")
+                    .set_body_bytes(payload),
+            )
+            .mount(&pds)
+            .await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&s3)
+            .await;
+
+        let car_path = repo_car_path(&did).expect("downloads dir resolvable");
+        let _ = std::fs::remove_file(&car_path);
+
+        let result = export_repo_to_s3(
+            ExportPDSRequest {
+                pds_host: pds.uri(),
+                did: did.clone(),
+                token: "origin-jwt".to_string(),
+            },
+            &s3.uri(),
+        )
+        .await;
+
+        assert!(result.is_ok(), "expected export_repo_to_s3 success");
+        let uploaded = s3.received_requests().await.expect("requests recorded");
+        assert!(
+            uploaded.iter().any(|r| r.method.as_str() == "PUT"),
+            "S3 mock should receive an upload PUT request"
+        );
+        let on_disk = std::fs::read(&car_path).expect("export should write CAR file");
+        assert_eq!(on_disk, payload);
+        let _ = std::fs::remove_file(&car_path);
+    }
+
+    #[actix_rt::test]
+    async fn test_export_repo_to_s3_returns_error_when_s3_upload_fails() {
+        let pds = MockServer::start().await;
+        let s3 = MockServer::start().await;
+        let did = unique_did("jobexportrepofail");
+
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.server.getSession"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "did": did,
+                "handle": "anothermigration.bsky.social",
+                "active": true
+            })))
+            .mount(&pds)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.sync.getRepo"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("ratelimit-remaining", "1000")
+                    .set_body_bytes(b"repo-bytes"),
+            )
+            .mount(&pds)
+            .await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&s3)
+            .await;
+
+        let result = export_repo_to_s3(
+            ExportPDSRequest {
+                pds_host: pds.uri(),
+                did,
+                token: "origin-jwt".to_string(),
+            },
+            &s3.uri(),
+        )
+        .await;
+
+        assert!(result.is_err(), "expected export_repo_to_s3 failure");
     }
 
     #[test]

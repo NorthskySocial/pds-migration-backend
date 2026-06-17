@@ -7,8 +7,9 @@ mod openapi;
 
 use crate::api::{
     activate_account_api, create_account_api, deactivate_account_api, enqueue_export_blobs_job_api,
-    enqueue_upload_blobs_job_api, export_pds_api, get_job_api, get_service_auth_api, health_check,
-    import_pds_api, migrate_plc_api, migrate_preferences_api, request_token_api,
+    enqueue_export_repo_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
+    get_service_auth_api, health_check, import_pds_api, migrate_plc_api, migrate_preferences_api,
+    request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
@@ -64,6 +65,7 @@ fn init_http_server(app_config: AppConfig) -> io::Result<Server> {
             .service(export_pds_api)
             .service(import_pds_api)
             .service(enqueue_export_blobs_job_api)
+            .service(enqueue_export_repo_job_api)
             .service(enqueue_upload_blobs_job_api)
             .service(get_job_api)
             .service(activate_account_api)
