@@ -3,17 +3,18 @@ use pdsmigration_common::repo_car_path;
 use pdsmigration_web::api::export_pds_api;
 use serde_json::json;
 use std::env;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::LazyLock;
+use tokio::sync::{Mutex, MutexGuard};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
 use common::{session_body, unique_did};
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-fn set_endpoint_env(value: Option<&str>) -> (MutexGuard<'static, ()>, Option<String>) {
-    let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+async fn set_endpoint_env(value: Option<&str>) -> (MutexGuard<'static, ()>, Option<String>) {
+    let guard = ENV_LOCK.lock().await;
     let previous = env::var("ENDPOINT").ok();
     match value {
         Some(v) => env::set_var("ENDPOINT", v),
@@ -59,7 +60,7 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds_and_s3() {
     let _ = std::fs::remove_file(&car_path);
 
     let app = test::init_service(App::new().service(export_pds_api)).await;
-    let (_guard, previous) = set_endpoint_env(Some(&s3.uri()));
+    let (_guard, previous) = set_endpoint_env(Some(&s3.uri())).await;
     let req = test::TestRequest::post()
         .uri("/export-repo")
         .set_json(json!({
@@ -86,7 +87,7 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds_and_s3() {
 async fn export_repo_sync_api_returns_runtime_error_without_endpoint_env() {
     let app = test::init_service(App::new().service(export_pds_api)).await;
 
-    let (_guard, previous) = set_endpoint_env(None);
+    let (_guard, previous) = set_endpoint_env(None).await;
     let req = test::TestRequest::post()
         .uri("/export-repo")
         .set_json(json!({
