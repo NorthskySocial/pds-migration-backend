@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use pdsmigration_web::background_jobs::{JobManager, JobStatus};
-use pdsmigration_web::config::{AppConfig, ExternalServices, ServerConfig};
+use pdsmigration_web::config::AppConfig;
 use serde_json::json;
 use std::time::Duration;
 use uuid::Uuid;
@@ -13,21 +13,16 @@ pub use pdsmigration_common::unique_did;
 /// A baseline `AppConfig` for tests that need app state wired up.
 pub fn create_test_config() -> AppConfig {
     AppConfig {
-        server: ServerConfig {
-            port: 8080,
-            workers: 1,
-            concurrent_tasks_per_job: 3,
-            upload_max_attempts: 4,
-            rate_limit_window_secs: 60,
-            rate_limit_max_requests: 60,
-            job_retention_secs: 3600,
-            artifact_retention_secs: 86400,
-            artifact_gc_interval_secs: 3600,
-            auth_token: None,
-        },
-        external_services: ExternalServices {
-            s3_endpoint: "http://test-s3.example.com".to_string(),
-        },
+        port: 8080,
+        workers: 1,
+        concurrent_tasks_per_job: 3,
+        upload_max_attempts: 4,
+        rate_limit_window_secs: 60,
+        rate_limit_max_requests: 60,
+        job_retention_secs: 3600,
+        artifact_retention_secs: 86400,
+        artifact_gc_interval_secs: 3600,
+        auth_token: None,
     }
 }
 

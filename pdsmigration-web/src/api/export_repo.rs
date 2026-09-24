@@ -1,13 +1,11 @@
 use crate::api::EnqueueJobResponse;
-use crate::background_jobs::{export_repo_to_s3, JobManager};
-use crate::config::AppConfig;
+use crate::background_jobs::JobManager;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use crate::Json;
 use actix_web::{web, HttpResponse};
 use pdsmigration_common::{ExportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fmt;
 use utoipa::ToSchema;
 
@@ -58,17 +56,7 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
 pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
-    let endpoint_url = env::var("ENDPOINT").map_err(|e| {
-        tracing::error!(
-            "[{}] Failed to get ENDPOINT environment variable: {}",
-            did,
-            e
-        );
-        ApiError::Runtime {
-            message: e.to_string(),
-        }
-    })?;
-    export_repo_to_s3(req_inner.into(), &endpoint_url)
+    pdsmigration_common::export_pds_api(req_inner.into())
         .await
         .map_err(|e| ApiError::Runtime {
             message: e.to_string(),
@@ -94,21 +82,17 @@ pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpRespon
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(jobs, config, req))]
+#[tracing::instrument(skip(jobs, req))]
 #[post("/jobs/export-repo")]
 pub async fn enqueue_export_repo_job_api(
     jobs: web::Data<JobManager>,
-    config: web::Data<AppConfig>,
     req: Json<ExportPDSApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
     tracing::info!("[{}] Enqueueing export-repo job", did);
     let id = jobs
-        .spawn_export_repo(
-            ExportPDSRequest::from(req_inner),
-            config.external_services.s3_endpoint.clone(),
-        )
+        .spawn_export_repo(ExportPDSRequest::from(req_inner))
         .await?;
     tracing::info!("[{}] Enqueued export-repo job {}", did, id);
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {

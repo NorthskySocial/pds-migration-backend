@@ -7,7 +7,7 @@ use pdsmigration_web::{
         migrate_plc_api, migrate_preferences_api, request_token_api,
     },
     background_jobs::{JobManager, DEFAULT_JOB_RETENTION_SECS},
-    config::{AppConfig, ExternalServices, ServerConfig},
+    config::AppConfig,
     APPLICATION_JSON,
 };
 use serde_json::json;
@@ -19,21 +19,16 @@ mod integration_tests {
 
     fn create_test_config() -> AppConfig {
         AppConfig {
-            server: ServerConfig {
-                port: 8080,
-                workers: 1,
-                concurrent_tasks_per_job: 3,
-                upload_max_attempts: 4,
-                rate_limit_window_secs: 60,
-                rate_limit_max_requests: 60,
-                job_retention_secs: 3600,
-                artifact_retention_secs: 86400,
-                artifact_gc_interval_secs: 3600,
-                auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
-            },
+            port: 8080,
+            workers: 1,
+            concurrent_tasks_per_job: 3,
+            upload_max_attempts: 4,
+            rate_limit_window_secs: 60,
+            rate_limit_max_requests: 60,
+            job_retention_secs: 3600,
+            artifact_retention_secs: 86400,
+            artifact_gc_interval_secs: 3600,
+            auth_token: None,
         }
     }
 

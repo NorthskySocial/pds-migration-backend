@@ -37,8 +37,8 @@ use utoipa_swagger_ui::SwaggerUi;
  * @throws: io::Error if the server fails to start
  */
 fn init_http_server(app_config: AppConfig, job_manager: JobManager) -> io::Result<Server> {
-    let server_port = app_config.server.port;
-    let worker_count = app_config.server.workers;
+    let server_port = app_config.port;
+    let worker_count = app_config.workers;
     let prometheus = PrometheusMetricsBuilder::new("api")
         .endpoint("/metrics")
         .build()
@@ -48,8 +48,8 @@ fn init_http_server(app_config: AppConfig, job_manager: JobManager) -> io::Resul
             .wrap(prometheus.clone())
             .wrap(TracingLogger::default())
             .wrap(RateLimiter::new(
-                app_config.server.rate_limit_max_requests,
-                Duration::from_secs(app_config.server.rate_limit_window_secs),
+                app_config.rate_limit_max_requests,
+                Duration::from_secs(app_config.rate_limit_window_secs),
             ))
             .wrap(middleware::auth_token::AuthToken::new())
             .app_data(web::Data::new(app_config.clone()))
@@ -109,21 +109,18 @@ async fn main() -> io::Result<()> {
     // Load App Config
     let app_config = AppConfig::from_env();
 
-    let job_manager = JobManager::new(Duration::from_secs(app_config.server.job_retention_secs));
+    let job_manager = JobManager::new(Duration::from_secs(app_config.job_retention_secs));
 
     // Periodically delete local migration artifacts left behind by finished jobs
     tokio::spawn(storage_gc::run_periodic_gc(
         job_manager.clone(),
-        Duration::from_secs(app_config.server.artifact_retention_secs),
-        Duration::from_secs(app_config.server.artifact_gc_interval_secs),
+        Duration::from_secs(app_config.artifact_retention_secs),
+        Duration::from_secs(app_config.artifact_gc_interval_secs),
     ));
 
     // Start Http Server
     let server = init_http_server(app_config.clone(), job_manager)?;
-    tracing::info!(
-        "Server started successfully on 0.0.0.0:{}",
-        app_config.server.port
-    );
+    tracing::info!("Server started successfully on 0.0.0.0:{}", app_config.port);
 
     server.await
 }
@@ -131,26 +128,21 @@ async fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, ExternalServices, ServerConfig};
+    use crate::config::AppConfig;
 
     #[test]
     fn test_init_http_server_success() {
         let app_config = AppConfig {
-            server: ServerConfig {
-                port: 8080,
-                workers: 2,
-                concurrent_tasks_per_job: 3,
-                upload_max_attempts: 4,
-                rate_limit_window_secs: 60,
-                rate_limit_max_requests: 60,
-                job_retention_secs: 3600,
-                artifact_retention_secs: 86400,
-                artifact_gc_interval_secs: 3600,
-                auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
-            },
+            port: 8080,
+            workers: 2,
+            concurrent_tasks_per_job: 3,
+            upload_max_attempts: 4,
+            rate_limit_window_secs: 60,
+            rate_limit_max_requests: 60,
+            job_retention_secs: 3600,
+            artifact_retention_secs: 86400,
+            artifact_gc_interval_secs: 3600,
+            auth_token: None,
         };
 
         let result = init_http_server(app_config, JobManager::default());
@@ -161,21 +153,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_server_routes_configuration() {
         let app_config = AppConfig {
-            server: ServerConfig {
-                port: 8080,
-                workers: 1,
-                concurrent_tasks_per_job: 3,
-                upload_max_attempts: 4,
-                rate_limit_window_secs: 60,
-                rate_limit_max_requests: 60,
-                job_retention_secs: 3600,
-                artifact_retention_secs: 86400,
-                artifact_gc_interval_secs: 3600,
-                auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
-            },
+            port: 8080,
+            workers: 1,
+            concurrent_tasks_per_job: 3,
+            upload_max_attempts: 4,
+            rate_limit_window_secs: 60,
+            rate_limit_max_requests: 60,
+            job_retention_secs: 3600,
+            artifact_retention_secs: 86400,
+            artifact_gc_interval_secs: 3600,
+            auth_token: None,
         };
 
         // Test that we can create an app with all routes

@@ -1,9 +1,8 @@
-use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::{Data, Json};
+use actix_web::web::Json;
 use actix_web::HttpResponse;
-use pdsmigration_common::{did_to_car_filename, repo_car_path, ImportPDSRequest, REDACTED};
+use pdsmigration_common::{ImportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use utoipa::ToSchema;
@@ -52,51 +51,10 @@ impl From<ImportPDSApiRequest> for ImportPDSRequest {
 )]
 #[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/import-repo")]
-pub async fn import_pds_api(
-    req: Json<ImportPDSApiRequest>,
-    config: Data<AppConfig>,
-) -> Result<HttpResponse, ApiError> {
+pub async fn import_pds_api(req: Json<ImportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
     tracing::info!("[{}] Import repository request received", did);
-    let endpoint_url = config.external_services.s3_endpoint.clone();
-    let config = aws_config::from_env()
-        .region("auto")
-        .endpoint_url(&endpoint_url)
-        .load()
-        .await;
-    let client = aws_sdk_s3::Client::new(&config);
-
-    let bucket_name = "migration".to_string();
-    let file_name = did_to_car_filename(&did);
-    let key = format!("migration/{file_name}");
-
-    // Download the file from S3
-    let s3_response = client
-        .get_object()
-        .bucket(&bucket_name)
-        .key(&key)
-        .send()
-        .await
-        .map_err(|error| ApiError::Runtime {
-            message: error.to_string(),
-        })?;
-
-    // Save the file locally using AWS SDK's built-in method
-    let body_bytes = s3_response
-        .body
-        .collect()
-        .await
-        .map_err(|error| ApiError::Runtime {
-            message: error.to_string(),
-        })?;
-
-    let file_path = repo_car_path(&did).map_err(|error| ApiError::Runtime {
-        message: error.to_string(),
-    })?;
-    std::fs::write(&file_path, body_bytes.into_bytes()).map_err(|error| ApiError::Runtime {
-        message: error.to_string(),
-    })?;
     pdsmigration_common::import_pds_api(req_inner.into()).await?;
     tracing::info!("[{}] Repository imported successfully", did);
 

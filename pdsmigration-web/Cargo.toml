@@ -27,8 +27,6 @@ tracing-actix-web = "0.7.22"
 pdsmigration-common = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-aws-config = { version = "1.10.1", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
-aws-sdk-s3 = { version = "1.141.0", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "rustls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 actix-web-prom = "0.10.0"

@@ -2,72 +2,15 @@ use actix_web::{http::StatusCode, test, App};
 use pdsmigration_common::repo_car_path;
 use pdsmigration_web::api::export_pds_api;
 use serde_json::json;
-use std::env;
-use std::sync::LazyLock;
-use tokio::sync::{Mutex, MutexGuard};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
 use common::{session_body, unique_did};
 
-static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-struct EnvSnapshot {
-    endpoint: Option<String>,
-    aws_access_key_id: Option<String>,
-    aws_secret_access_key: Option<String>,
-    aws_ec2_metadata_disabled: Option<String>,
-}
-
-async fn set_endpoint_env(value: Option<&str>) -> (MutexGuard<'static, ()>, EnvSnapshot) {
-    let guard = ENV_LOCK.lock().await;
-    let previous = EnvSnapshot {
-        endpoint: env::var("ENDPOINT").ok(),
-        aws_access_key_id: env::var("AWS_ACCESS_KEY_ID").ok(),
-        aws_secret_access_key: env::var("AWS_SECRET_ACCESS_KEY").ok(),
-        aws_ec2_metadata_disabled: env::var("AWS_EC2_METADATA_DISABLED").ok(),
-    };
-
-    match value {
-        Some(v) => env::set_var("ENDPOINT", v),
-        None => env::remove_var("ENDPOINT"),
-    }
-
-    // Ensure AWS SDK auth resolution is deterministic in CI and local runs.
-    env::set_var("AWS_ACCESS_KEY_ID", "test-access-key");
-    env::set_var("AWS_SECRET_ACCESS_KEY", "test-secret-key");
-    env::set_var("AWS_EC2_METADATA_DISABLED", "true");
-
-    (guard, previous)
-}
-
-fn restore_endpoint_env(previous: EnvSnapshot) {
-    match previous.endpoint {
-        Some(v) => env::set_var("ENDPOINT", v),
-        None => env::remove_var("ENDPOINT"),
-    }
-
-    match previous.aws_access_key_id {
-        Some(v) => env::set_var("AWS_ACCESS_KEY_ID", v),
-        None => env::remove_var("AWS_ACCESS_KEY_ID"),
-    }
-
-    match previous.aws_secret_access_key {
-        Some(v) => env::set_var("AWS_SECRET_ACCESS_KEY", v),
-        None => env::remove_var("AWS_SECRET_ACCESS_KEY"),
-    }
-
-    match previous.aws_ec2_metadata_disabled {
-        Some(v) => env::set_var("AWS_EC2_METADATA_DISABLED", v),
-        None => env::remove_var("AWS_EC2_METADATA_DISABLED"),
-    }
-}
-
 #[actix_rt::test]
-async fn export_repo_sync_api_succeeds_with_mocked_pds_and_s3() {
+async fn export_repo_sync_api_succeeds_with_mocked_pds() {
     let pds = MockServer::start().await;
-    let s3 = MockServer::start().await;
     let did = unique_did("websyncsuccess");
     let payload: &[u8] = b"sync-export-repo-payload";
 
@@ -85,16 +28,11 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds_and_s3() {
         )
         .mount(&pds)
         .await;
-    Mock::given(method("PUT"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&s3)
-        .await;
 
     let car_path = repo_car_path(&did).expect("downloads dir resolvable");
     let _ = std::fs::remove_file(&car_path);
 
     let app = test::init_service(App::new().service(export_pds_api)).await;
-    let (_guard, previous) = set_endpoint_env(Some(&s3.uri())).await;
     let req = test::TestRequest::post()
         .uri("/export-repo")
         .set_json(json!({
@@ -105,27 +43,20 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds_and_s3() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    restore_endpoint_env(previous);
 
-    let uploaded = s3.received_requests().await.expect("requests recorded");
-    assert!(
-        uploaded.iter().any(|r| r.method.as_str() == "PUT"),
-        "S3 mock should receive an upload PUT request"
-    );
     let on_disk = std::fs::read(&car_path).expect("export should write CAR file");
     assert_eq!(on_disk, payload);
     let _ = std::fs::remove_file(&car_path);
 }
 
 #[actix_rt::test]
-async fn export_repo_sync_api_returns_runtime_error_without_endpoint_env() {
+async fn export_repo_sync_api_returns_runtime_error_when_pds_unreachable() {
     let app = test::init_service(App::new().service(export_pds_api)).await;
 
-    let (_guard, previous) = set_endpoint_env(None).await;
     let req = test::TestRequest::post()
         .uri("/export-repo")
         .set_json(json!({
-            "pds_host": "https://pds.example.com",
+            "pds_host": "http://pds.invalid",
             "did": "did:plc:abc123",
             "token": "origin-jwt",
         }))
@@ -135,5 +66,4 @@ async fn export_repo_sync_api_returns_runtime_error_without_endpoint_env() {
     let body = test::read_body(resp).await;
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["code"], "Runtime");
-    restore_endpoint_env(previous);
 }
