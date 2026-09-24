@@ -12,9 +12,8 @@ impl Modify for SecurityAddon {
         let components = openapi.components.get_or_insert_default();
         components.security_schemes.insert(
             "x_auth_token".to_string(),
-            SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
-                "X-Auth-Token",
-                "Server authentication token",
+            utoipa::openapi::RefOr::T(SecurityScheme::ApiKey(ApiKey::Header(
+                ApiKeyValue::with_description("X-Auth-Token", "Server authentication token"),
             ))),
         );
     }
