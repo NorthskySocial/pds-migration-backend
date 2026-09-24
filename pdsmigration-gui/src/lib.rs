@@ -16,8 +16,8 @@ use pdsmigration_common::{
     MigrationError, PlcOperation, RequestTokenRequest, ServiceAuthRequest, UploadBlobsRequest,
 };
 use rand::distr::Alphanumeric;
-use rand::Rng;
-use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+use rand::RngExt;
+use secp256k1::{Message, PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -103,15 +103,14 @@ pub async fn deactivate_account(session_config: SessionConfig) -> Result<(), Gui
 
 #[tracing::instrument]
 pub fn generate_recovery_key(user_recovery_key_password: String) -> Result<String, GuiError> {
-    let secp = Secp256k1::new();
-    let (secret_key, public_key) = secp.generate_keypair(&mut rand::rng());
+    let (secret_key, public_key) = generate_secp256k1_keypair();
     let pk_compact = public_key.serialize();
     let pk_wrapped = multicodec_wrap(pk_compact.to_vec());
     let pk_multibase = multibase::encode(Base58Btc, pk_wrapped.as_slice());
     let public_key_str = format!("did:key:{pk_multibase}");
 
-    let sk_compact = secret_key.secret_bytes().to_vec();
-    let sk_str = secret_key.secret_bytes().encode_hex::<String>();
+    let sk_compact = secret_key.to_secret_bytes().to_vec();
+    let sk_str = secret_key.to_secret_bytes().encode_hex::<String>();
     let sk_wrapped = multicodec_wrap(sk_compact.to_vec());
     let sk_multibase = multibase::encode(Base58Btc, sk_wrapped.as_slice());
     let _secret_key_str = format!("did:key:{sk_multibase}");
@@ -157,14 +156,13 @@ pub fn generate_recovery_key(user_recovery_key_password: String) -> Result<Strin
 
 #[tracing::instrument]
 pub async fn generate_signing_key() -> (String, String) {
-    let secp = Secp256k1::new();
-    let (secret_key, public_key) = secp.generate_keypair(&mut rand::rng());
+    let (secret_key, public_key) = generate_secp256k1_keypair();
     let pk_compact = public_key.serialize();
     let pk_wrapped = multicodec_wrap(pk_compact.to_vec());
     let pk_multibase = multibase::encode(Base58Btc, pk_wrapped.as_slice());
     let public_key_str = format!("did:key:{pk_multibase}");
 
-    let sk_compact = secret_key.secret_bytes().to_vec();
+    let sk_compact = secret_key.to_secret_bytes().to_vec();
     let sk_wrapped = multicodec_wrap(sk_compact.to_vec());
     let sk_multibase = multibase::encode(Base58Btc, sk_wrapped.as_slice());
     let secret_key_str = format!("did:key:{sk_multibase}");
@@ -861,7 +859,7 @@ pub struct ServiceJwtPayload {
 
 pub fn get_random_str() -> String {
     #[allow(deprecated)]
-    let token: String = rand::thread_rng()
+    let token: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .take(32)
         .map(char::from)
@@ -958,31 +956,37 @@ pub fn atproto_sign<T: Serialize>(obj: &T, key: &SecretKey) -> [u8; 64] {
 }
 
 pub fn get_keys_from_private_key_str(private_key: String) -> (SecretKey, PublicKey) {
-    let secp = Secp256k1::new();
     let decoded_key = hex::decode(private_key.as_bytes()).unwrap();
-    #[allow(deprecated)]
-    let secret_key = SecretKey::from_slice(&decoded_key).unwrap();
-    let public_key = secret_key.public_key(&secp);
+    let secret_key = SecretKey::from_secret_bytes(decoded_key.try_into().unwrap()).unwrap();
+    let public_key = secret_key.public_key();
     (secret_key, public_key)
 }
 
 pub fn decode_did_secret_key(private_key: &str) -> (SecretKey, PublicKey) {
-    let secp = Secp256k1::new();
     let decoded_key = hex::decode(private_key.as_bytes())
         .map_err(|_error| {
             let _context = format!("Issue decoding hex '{private_key}'");
             panic!()
         })
         .unwrap();
-    #[allow(deprecated)]
-    let secret_key = SecretKey::from_slice(&decoded_key)
+    let secret_key = SecretKey::from_secret_bytes(decoded_key.try_into().unwrap())
         .map_err(|_error| {
             let _context = format!("Issue creating secret key from input '{private_key}'");
             panic!()
         })
         .unwrap();
-    let public_key = secret_key.public_key(&secp);
+    let public_key = secret_key.public_key();
     (secret_key, public_key)
+}
+
+fn generate_secp256k1_keypair() -> (SecretKey, PublicKey) {
+    loop {
+        let bytes: [u8; 32] = rand::random();
+        if let Ok(secret_key) = SecretKey::from_secret_bytes(bytes) {
+            let public_key = secret_key.public_key();
+            return (secret_key, public_key);
+        }
+    }
 }
 
 pub fn extract_multikey(did: &String) -> String {

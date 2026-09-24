@@ -14,7 +14,7 @@ repository = "https://github.com/NorthskySocial/pds-migration-backend"
 pdsmigration-common = { path = "pdsmigration-common", version = "0.22.0" }
 
 tokio = "1.53.1"
-reqwest = { version = "0.13.4", default-features = false, features = ["default-tls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["default-tls"] }
 bsky-sdk = { version = "0.1.24", default-features = false, features = ["default-client"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
