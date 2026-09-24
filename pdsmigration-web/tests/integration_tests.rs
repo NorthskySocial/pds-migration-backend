@@ -7,7 +7,7 @@ use pdsmigration_web::{
         migrate_plc_api, migrate_preferences_api, request_token_api,
     },
     background_jobs::{JobManager, DEFAULT_JOB_RETENTION_SECS},
-    config::{AppConfig, ExternalServices, ServerConfig},
+    config::{AppConfig, ServerConfig},
     APPLICATION_JSON,
 };
 use serde_json::json;
@@ -30,9 +30,6 @@ mod integration_tests {
                 artifact_retention_secs: 86400,
                 artifact_gc_interval_secs: 3600,
                 auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
             },
         }
     }

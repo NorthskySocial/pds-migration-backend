@@ -16,7 +16,7 @@
 
 - [ ] `pdsmigration-common` - Core library with migration logic
 - [ ] `pdsmigration-gui` - Desktop GUI application (egui/eframe)
-- [ ] `pdsmigration-web` - Web service (Actix-Web + AWS S3)
+- [ ] `pdsmigration-web` - Web service (Actix-Web)
 - [ ] Project configuration (Cargo.toml, CI/CD, Docker, etc.)
 
 ## Type of Change

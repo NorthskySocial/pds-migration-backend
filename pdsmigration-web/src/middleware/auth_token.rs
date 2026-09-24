@@ -111,7 +111,7 @@ fn is_authorized(headers: &HeaderMap, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, ExternalServices, ServerConfig};
+    use crate::config::{AppConfig, ServerConfig};
     use actix_web::http::header::{HeaderName, HeaderValue};
     use actix_web::http::StatusCode;
     use actix_web::{test as actix_test, web, App, HttpResponse};
@@ -129,9 +129,6 @@ mod tests {
                 artifact_retention_secs: 86400,
                 artifact_gc_interval_secs: 3600,
                 auth_token: token.map(|t| t.to_string()),
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
             },
         }
     }

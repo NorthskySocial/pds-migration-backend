@@ -13,15 +13,14 @@ network. It consists of three main packages:
 - **`pdsmigration-common`**: Core library containing migration logic, cryptographic utilities, and
   shared API functions
 - **`pdsmigration-gui`**: Cross-platform desktop GUI application built with egui/eframe
-- **`pdsmigration-web`**: HTTP web service built with Actix-Web, featuring AWS S3 integration and
-  Prometheus metrics
+- **`pdsmigration-web`**: HTTP web service built with Actix-Web, featuring background job
+  processing and Prometheus metrics
 
 ## Technology Stack
 
 - **Language**: Rust (1.97.0 toolchain required)
 - **GUI Framework**: egui/eframe with both glow and wgpu rendering backends
 - **Web Framework**: Actix-Web
-- **Cloud Storage**: AWS S3 SDK
 - **Cryptography**: secp256k1, multibase encoding
 - **Data Formats**: IPLD, CBOR, JSON
 - **Metrics**: Prometheus
@@ -119,7 +118,6 @@ cargo test -p pdsmigration-common
 
 | Variable                   | Required | Default                 | Description                           |
 |----------------------------|----------|-------------------------|---------------------------------------|
-| `ENDPOINT`                 | **Yes**  | -                       | S3-compatible storage endpoint URL.   |
 | `PLC_DIRECTORY`            | No       | `https://plc.directory` | PLC directory service URL             |
 | `SERVER_PORT`              | No       | `9090`                  | HTTP server port                      |
 | `WORKER_COUNT`             | No       | `2`                     | Number of worker threads              |
@@ -128,25 +126,13 @@ cargo test -p pdsmigration-common
 | `ARTIFACT_RETENTION_SECS`  | No       | `86400`                 | How long local blob directories and repo CAR files are kept before being deleted |
 | `ARTIFACT_GC_INTERVAL_SECS`| No       | `3600`                  | How often the local artifact garbage collector runs |
 
-### AWS S3 Configuration
-
-Standard AWS SDK environment variables are supported:
-
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
-
 ### Example .env file
 
 ```env
-ENDPOINT=https://s3.amazonaws.com
 SERVER_PORT=9090
 WORKER_COUNT=4
 CONCURRENT_TASKS_PER_JOB=3
 PLC_DIRECTORY=https://plc.directory
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
 ```
 
 ## API Endpoints

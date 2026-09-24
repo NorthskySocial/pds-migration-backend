@@ -131,7 +131,7 @@ async fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, ExternalServices, ServerConfig};
+    use crate::config::{AppConfig, ServerConfig};
 
     #[test]
     fn test_init_http_server_success() {
@@ -147,9 +147,6 @@ mod tests {
                 artifact_retention_secs: 86400,
                 artifact_gc_interval_secs: 3600,
                 auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
             },
         };
 
@@ -172,9 +169,6 @@ mod tests {
                 artifact_retention_secs: 86400,
                 artifact_gc_interval_secs: 3600,
                 auth_token: None,
-            },
-            external_services: ExternalServices {
-                s3_endpoint: "http://test-s3.example.com".to_string(),
             },
         };
 
