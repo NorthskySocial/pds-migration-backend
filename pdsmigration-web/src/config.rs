@@ -3,11 +3,6 @@ use std::env;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
-    pub server: ServerConfig,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ServerConfig {
     pub port: u16,
     pub workers: usize,
     pub concurrent_tasks_per_job: usize,
@@ -43,18 +38,16 @@ impl AppConfig {
         );
 
         Self {
-            server: ServerConfig {
-                port: server_port.parse().unwrap(),
-                workers: worker_count.parse().unwrap(),
-                concurrent_tasks_per_job: concurrent_tasks_per_job.parse().unwrap(),
-                upload_max_attempts: upload_max_attempts.parse().unwrap(),
-                rate_limit_window_secs: rate_limit_window_secs.parse().unwrap(),
-                rate_limit_max_requests: rate_limit_max_requests.parse().unwrap(),
-                job_retention_secs: job_retention_secs.parse().unwrap(),
-                artifact_retention_secs: artifact_retention_secs.parse().unwrap(),
-                artifact_gc_interval_secs,
-                auth_token: env::var("AUTH_TOKEN").ok(),
-            },
+            port: server_port.parse().unwrap(),
+            workers: worker_count.parse().unwrap(),
+            concurrent_tasks_per_job: concurrent_tasks_per_job.parse().unwrap(),
+            upload_max_attempts: upload_max_attempts.parse().unwrap(),
+            rate_limit_window_secs: rate_limit_window_secs.parse().unwrap(),
+            rate_limit_max_requests: rate_limit_max_requests.parse().unwrap(),
+            job_retention_secs: job_retention_secs.parse().unwrap(),
+            artifact_retention_secs: artifact_retention_secs.parse().unwrap(),
+            artifact_gc_interval_secs,
+            auth_token: env::var("AUTH_TOKEN").ok(),
         }
     }
 }
@@ -110,16 +103,16 @@ mod tests {
             ],
             || {
                 let cfg = AppConfig::from_env();
-                assert_eq!(cfg.server.port, 9090);
-                assert_eq!(cfg.server.workers, 2);
-                assert_eq!(cfg.server.concurrent_tasks_per_job, 3);
-                assert_eq!(cfg.server.upload_max_attempts, 3);
-                assert_eq!(cfg.server.rate_limit_window_secs, 60);
-                assert_eq!(cfg.server.rate_limit_max_requests, 240);
-                assert_eq!(cfg.server.job_retention_secs, 3600);
-                assert_eq!(cfg.server.artifact_retention_secs, 86400);
-                assert_eq!(cfg.server.artifact_gc_interval_secs, 3600);
-                assert!(cfg.server.auth_token.is_none());
+                assert_eq!(cfg.port, 9090);
+                assert_eq!(cfg.workers, 2);
+                assert_eq!(cfg.concurrent_tasks_per_job, 3);
+                assert_eq!(cfg.upload_max_attempts, 3);
+                assert_eq!(cfg.rate_limit_window_secs, 60);
+                assert_eq!(cfg.rate_limit_max_requests, 240);
+                assert_eq!(cfg.job_retention_secs, 3600);
+                assert_eq!(cfg.artifact_retention_secs, 86400);
+                assert_eq!(cfg.artifact_gc_interval_secs, 3600);
+                assert!(cfg.auth_token.is_none());
             },
         );
     }
@@ -141,16 +134,16 @@ mod tests {
             ],
             || {
                 let cfg = AppConfig::from_env();
-                assert_eq!(cfg.server.port, 8181);
-                assert_eq!(cfg.server.workers, 4);
-                assert_eq!(cfg.server.concurrent_tasks_per_job, 12);
-                assert_eq!(cfg.server.upload_max_attempts, 7);
-                assert_eq!(cfg.server.rate_limit_window_secs, 30);
-                assert_eq!(cfg.server.rate_limit_max_requests, 100);
-                assert_eq!(cfg.server.job_retention_secs, 120);
-                assert_eq!(cfg.server.artifact_retention_secs, 600);
-                assert_eq!(cfg.server.artifact_gc_interval_secs, 60);
-                assert_eq!(cfg.server.auth_token.as_deref(), Some("secret-token"));
+                assert_eq!(cfg.port, 8181);
+                assert_eq!(cfg.workers, 4);
+                assert_eq!(cfg.concurrent_tasks_per_job, 12);
+                assert_eq!(cfg.upload_max_attempts, 7);
+                assert_eq!(cfg.rate_limit_window_secs, 30);
+                assert_eq!(cfg.rate_limit_max_requests, 100);
+                assert_eq!(cfg.job_retention_secs, 120);
+                assert_eq!(cfg.artifact_retention_secs, 600);
+                assert_eq!(cfg.artifact_gc_interval_secs, 60);
+                assert_eq!(cfg.auth_token.as_deref(), Some("secret-token"));
             },
         );
     }

@@ -66,7 +66,7 @@ where
         let service = self.service.clone();
 
         Box::pin(async move {
-            let configured_token = maybe_cfg.as_ref().and_then(|d| d.server.auth_token.clone());
+            let configured_token = maybe_cfg.as_ref().and_then(|d| d.auth_token.clone());
 
             if !bypass {
                 if let Some(expected) = configured_token {
@@ -111,25 +111,23 @@ fn is_authorized(headers: &HeaderMap, expected: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, ServerConfig};
+    use crate::config::AppConfig;
     use actix_web::http::header::{HeaderName, HeaderValue};
     use actix_web::http::StatusCode;
     use actix_web::{test as actix_test, web, App, HttpResponse};
 
     fn config_with_token(token: Option<&str>) -> AppConfig {
         AppConfig {
-            server: ServerConfig {
-                port: 0,
-                workers: 1,
-                concurrent_tasks_per_job: 1,
-                upload_max_attempts: 4,
-                rate_limit_window_secs: 60,
-                rate_limit_max_requests: 60,
-                job_retention_secs: 3600,
-                artifact_retention_secs: 86400,
-                artifact_gc_interval_secs: 3600,
-                auth_token: token.map(|t| t.to_string()),
-            },
+            port: 0,
+            workers: 1,
+            concurrent_tasks_per_job: 1,
+            upload_max_attempts: 4,
+            rate_limit_window_secs: 60,
+            rate_limit_max_requests: 60,
+            job_retention_secs: 3600,
+            artifact_retention_secs: 86400,
+            artifact_gc_interval_secs: 3600,
+            auth_token: token.map(|t| t.to_string()),
         }
     }
 
