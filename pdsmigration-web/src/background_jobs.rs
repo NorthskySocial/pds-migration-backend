@@ -1008,7 +1008,10 @@ mod tests {
         })
         .await;
 
-        assert!(result.is_ok(), "expected export_pds_api success: {result:?}");
+        assert!(
+            result.is_ok(),
+            "expected export_pds_api success: {result:?}"
+        );
         let on_disk = std::fs::read(&car_path).expect("export should write CAR file");
         assert_eq!(on_disk, payload);
         let _ = std::fs::remove_file(&car_path);

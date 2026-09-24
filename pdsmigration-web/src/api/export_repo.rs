@@ -91,7 +91,9 @@ pub async fn enqueue_export_repo_job_api(
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
     tracing::info!("[{}] Enqueueing export-repo job", did);
-    let id = jobs.spawn_export_repo(ExportPDSRequest::from(req_inner)).await?;
+    let id = jobs
+        .spawn_export_repo(ExportPDSRequest::from(req_inner))
+        .await?;
     tracing::info!("[{}] Enqueued export-repo job {}", did, id);
     Ok(HttpResponse::Accepted().json(EnqueueJobResponse {
         job_id: id.to_string(),

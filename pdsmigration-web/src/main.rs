@@ -120,10 +120,7 @@ async fn main() -> io::Result<()> {
 
     // Start Http Server
     let server = init_http_server(app_config.clone(), job_manager)?;
-    tracing::info!(
-        "Server started successfully on 0.0.0.0:{}",
-        app_config.port
-    );
+    tracing::info!("Server started successfully on 0.0.0.0:{}", app_config.port);
 
     server.await
 }
