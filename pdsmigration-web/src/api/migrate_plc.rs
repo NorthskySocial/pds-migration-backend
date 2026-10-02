@@ -19,6 +19,7 @@ pub struct MigratePlcApiRequest {
     pub did: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub origin_token: String,
+    #[serde(deserialize_with = "super::deserialize_trimmed")]
     #[schema(example = "7G54NB")]
     pub plc_signing_token: String,
     #[serde(skip_serializing_if = "core::option::Option::is_none")]
@@ -84,6 +85,24 @@ pub async fn migrate_plc_api(req: Json<MigratePlcApiRequest>) -> Result<HttpResp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_plc_api_request_trims_user_fields() {
+        let req: MigratePlcApiRequest = serde_json::from_value(serde_json::json!({
+            "destination": "https://dst.example.com",
+            "destination_token": " destination-token ",
+            "origin": "https://src.example.com",
+            "did": "did:plc:abc123",
+            "origin_token": " origin-token ",
+            "plc_signing_token": " plc-token ",
+            "user_recovery_key": "recovery-key"
+        }))
+        .expect("request should deserialize");
+
+        assert_eq!(req.plc_signing_token, "plc-token");
+        assert_eq!(req.destination_token, " destination-token ");
+        assert_eq!(req.origin_token, " origin-token ");
+    }
 
     #[test]
     fn migrate_plc_api_request_redacts_all_secrets() {

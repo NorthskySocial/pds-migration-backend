@@ -9,10 +9,13 @@ use utoipa::ToSchema;
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct CreateAccountApiRequest {
+    #[serde(deserialize_with = "super::deserialize_trimmed")]
     #[schema(example = "user@example.com")]
     pub email: String,
+    #[serde(deserialize_with = "super::deserialize_trimmed")]
     #[schema(example = "alice.test")]
     pub handle: String,
+    #[serde(deserialize_with = "super::deserialize_trimmed")]
     #[schema(example = "bsky-invite-abc123-xyz789")]
     pub invite_code: String,
     #[schema(example = "StrongP@ssw0rd!")]
@@ -105,7 +108,7 @@ pub async fn create_account_api(
             did: did_parsed,
             email: Some(req.email.clone()),
             handle,
-            invite_code: Some(req.invite_code.trim().to_string()),
+            invite_code: Some(req.invite_code.clone()),
             password: Some(req.password.clone()),
             recovery_key: req.recovery_key.clone(),
             verification_code: Some(String::from("")),
@@ -137,6 +140,26 @@ pub async fn create_account_api(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_account_api_request_trims_user_fields() {
+        let req: CreateAccountApiRequest = serde_json::from_value(serde_json::json!({
+            "email": " user@example.com ",
+            "handle": " alice.test ",
+            "invite_code": " invite-code ",
+            "password": " password-secret ",
+            "token": "token-secret",
+            "pds_host": "https://pds.example.com",
+            "did": "did:plc:abc123",
+            "recovery_key": "recovery-secret"
+        }))
+        .expect("request should deserialize");
+
+        assert_eq!(req.email, "user@example.com");
+        assert_eq!(req.handle, "alice.test");
+        assert_eq!(req.invite_code, "invite-code");
+        assert_eq!(req.password, " password-secret ");
+    }
 
     #[test]
     fn create_account_api_request_redacts_secrets() {
