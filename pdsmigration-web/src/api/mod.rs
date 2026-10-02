@@ -12,6 +12,15 @@ mod request_token;
 mod service_auth;
 mod upload_blobs;
 
+use serde::{Deserialize, Deserializer};
+
+fn deserialize_trimmed<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(|value| value.trim().to_string())
+}
+
 pub use activate_account::*;
 pub use create_account::*;
 pub use deactivate_account::*;
