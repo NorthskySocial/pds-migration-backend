@@ -5,7 +5,8 @@ use futures_util::StreamExt;
 use pdsmigration_common::{
     activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
     export_pds_api, format_cid, login_helper, missing_blobs, upload_blob_v2, wait_for_rate_limit,
-    ExportBlobsRequest, ExportPDSRequest, GetBlobRequest, MigrationError, UploadBlobsRequest,
+    write_blob_stream, ExportBlobsRequest, ExportPDSRequest, GetBlobRequest, MigrationError,
+    UploadBlobsRequest,
 };
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
@@ -14,7 +15,6 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -81,6 +81,13 @@ pub struct JobProgress {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BlobFailure {
+    pub cid: String,
+    pub step: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct JobRecord {
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
     pub id: String,
@@ -105,6 +112,8 @@ pub struct JobRecord {
             "total": 100
         }))]
     pub progress: Option<JobProgress>,
+    #[serde(default)]
+    pub blob_failures: Vec<BlobFailure>,
 }
 
 impl JobRecord {
@@ -118,6 +127,7 @@ impl JobRecord {
             started_at: None,
             finished_at: None,
             progress: Some(JobProgress::default()),
+            blob_failures: Vec::new(),
         }
     }
 }
@@ -211,10 +221,13 @@ impl JobState {
         }
     }
 
-    pub fn record_failure(&mut self, id: Uuid) {
+    pub fn record_failure(&mut self, id: Uuid, blob_failure: Option<BlobFailure>) {
         if let Some(r) = self.records.get_mut(&id) {
             if let Some(progress) = r.progress.as_mut() {
                 progress.invalid_blobs += 1;
+            }
+            if let Some(blob_failure) = blob_failure {
+                r.blob_failures.push(blob_failure);
             }
         }
     }
@@ -468,22 +481,36 @@ async fn export_blobs_api_job(
                 token: session.access_jwt.clone(),
             };
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
-                Ok(mut stream) => {
-                    tracing::info!("[{}] Successfully fetched missing blob", did);
+                Ok(stream) => {
                     let mut blob_path = did_blobs_path.clone();
                     blob_path.push(&blob_cid_str);
-                    let mut file = tokio::fs::File::create(blob_path.as_path()).await.unwrap();
-
-                    while let Some(chunk) = stream.next().await {
-                        let chunk = chunk.unwrap();
-                        file.write_all(&chunk).await.unwrap();
-                    }
-
-                    file.flush().await.unwrap();
-
-                    {
-                        let mut st = state.write().await;
-                        st.record_success(id);
+                    match write_blob_stream(blob_path, stream).await {
+                        Ok(()) => {
+                            tracing::info!("[{}] Successfully fetched missing blob", did);
+                            let mut st = state.write().await;
+                            st.record_success(id);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                job_id = %id,
+                                did = %did,
+                                kind = %JobKind::ExportBlobs,
+                                cid = %blob_cid_str,
+                                step = "write_blob",
+                                error = %e,
+                                error_debug = ?e,
+                                "Failed to process blob",
+                            );
+                            let mut st = state.write().await;
+                            st.record_failure(
+                                id,
+                                Some(BlobFailure {
+                                    cid: blob_cid_str,
+                                    step: "write_blob".to_string(),
+                                    error: e.to_string(),
+                                }),
+                            );
+                        }
                     }
                 }
                 Err(e) => {
@@ -501,7 +528,14 @@ async fn export_blobs_api_job(
                     );
                     {
                         let mut st = state.write().await;
-                        st.record_failure(id);
+                        st.record_failure(
+                            id,
+                            Some(BlobFailure {
+                                cid: blob_cid_str,
+                                step: "download_blob".to_string(),
+                                error: e.to_string(),
+                            }),
+                        );
                     }
                 }
             }
@@ -639,9 +673,16 @@ async fn upload_blobs_api_job(
             let file = match tokio::fs::read(&path).await {
                 Ok(data) => data,
                 Err(error) => {
-                    tracing::error!("[{}] {}", did, error.to_string());
+                    tracing::error!("[{}] Failed to read blob {}: {}", did, blob_cid_str, error);
                     let mut st = state.write().await;
-                    st.record_failure(id);
+                    st.record_failure(
+                        id,
+                        Some(BlobFailure {
+                            cid: blob_cid_str,
+                            step: "read_blob".to_string(),
+                            error: error.to_string(),
+                        }),
+                    );
                     continue;
                 }
             };
@@ -665,7 +706,14 @@ async fn upload_blobs_api_job(
                         e
                     );
                     let mut st = state.write().await;
-                    st.record_failure(id);
+                    st.record_failure(
+                        id,
+                        Some(BlobFailure {
+                            cid: blob_cid_str,
+                            step: "upload_blob".to_string(),
+                            error: e.to_string(),
+                        }),
+                    );
                 }
             }
         }
@@ -697,7 +745,7 @@ async fn export_repo_api_job(
         }
         Err(error) => {
             let mut st = state.write().await;
-            st.record_failure(id);
+            st.record_failure(id, None);
             Err(error)
         }
     }
@@ -875,12 +923,24 @@ mod tests {
         let record = JobRecord::new(id, JobKind::ExportBlobs);
         state.records.insert(id, record);
 
-        state.record_failure(id);
-        state.record_failure(id);
+        state.record_failure(id, None);
+        state.record_failure(id, None);
+        state.record_failure(
+            id,
+            Some(BlobFailure {
+                cid: "bafyexamplecid".to_string(),
+                step: "download_blob".to_string(),
+                error: "HTTP 400: bad blob".to_string(),
+            }),
+        );
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
-        assert_eq!(progress.invalid_blobs, 2);
+        assert_eq!(progress.invalid_blobs, 3);
+        assert_eq!(record.blob_failures.len(), 1);
+        assert_eq!(record.blob_failures[0].cid, "bafyexamplecid");
+        assert_eq!(record.blob_failures[0].step, "download_blob");
+        assert_eq!(record.blob_failures[0].error, "HTTP 400: bad blob");
     }
 
     #[test]
@@ -894,8 +954,8 @@ mod tests {
         state.record_success(id);
         state.record_success(id);
         state.record_success(id);
-        state.record_failure(id);
-        state.record_failure(id);
+        state.record_failure(id, None);
+        state.record_failure(id, None);
 
         let record = state.records.get(&id).unwrap();
         let progress = record.progress.as_ref().unwrap();
@@ -915,7 +975,7 @@ mod tests {
     fn test_job_state_record_success_failure_unknown_id_is_noop() {
         let mut state = JobState::default();
         state.record_success(Uuid::new_v4());
-        state.record_failure(Uuid::new_v4());
+        state.record_failure(Uuid::new_v4(), None);
         state.update_total(Uuid::new_v4(), 1);
         assert!(state.records.is_empty());
     }

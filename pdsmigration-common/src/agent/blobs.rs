@@ -1,13 +1,16 @@
 use crate::{
-    GetBlobParams, GetBlobParamsData, GetBlobRequest, ListBlobsParams, ListBlobsParamsData,
-    ListMissingBlobsParams, ListMissingBlobsParamsData, MigrationError, APPLICATION_JSON,
+    try_parse_error_response, GetBlobParams, GetBlobParamsData, GetBlobRequest, ListBlobsParams,
+    ListBlobsParamsData, ListMissingBlobsParams, ListMissingBlobsParamsData, MigrationError,
+    APPLICATION_JSON,
 };
 use bsky_sdk::api::com::atproto::repo::list_missing_blobs::RecordBlob;
 use bsky_sdk::api::types::string::{Cid, Did};
 use bsky_sdk::BskyAgent;
+use futures_util::StreamExt;
 use ipld_core::ipld::Ipld;
 use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 const DEFAULT_BLOB_REQUEST_TIMEOUT_SECS: u64 = 120;
 
@@ -319,31 +322,62 @@ pub async fn download_blob(
                     tracing::info!("[{}] Successfully downloaded blob", did_str);
                     Ok(output.bytes_stream())
                 }
-                reqwest::StatusCode::BAD_REQUEST => {
+                status => {
+                    let message = try_parse_error_response(output).await;
                     tracing::error!(
-                        "[{}] BadRequest Error downloading blob: {:?}",
-                        did_str,
-                        output
+                        did = %did_str,
+                        cid = %request.cid,
+                        status = %status,
+                        error = %message,
+                        "Blob download returned an error",
                     );
                     Err(MigrationError::Upstream {
-                        message: "BadRequest downloading blob".to_string(),
-                    })
-                }
-                _ => {
-                    tracing::error!("[{}] Runtime Error downloading blob: {:?}", did_str, output);
-                    Err(MigrationError::Upstream {
-                        message: "Runtime Error downloading blob".to_string(),
+                        message: format!("HTTP {status}: {message}"),
                     })
                 }
             }
         }
         Err(e) => {
-            tracing::error!("[{}] Unexpected Error downloading blob: {:?}", did_str, e);
+            tracing::error!(
+                did = %did_str,
+                cid = %request.cid,
+                error = %e,
+                error_debug = ?e,
+                "Blob download request failed",
+            );
             Err(MigrationError::Runtime {
-                message: "Unexpected Error downloading blob".to_string(),
+                message: format!("Transport error downloading blob: {e}"),
             })
         }
     }
+}
+
+pub async fn write_blob_stream(
+    path: impl AsRef<std::path::Path>,
+    mut stream: impl futures_core::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
+) -> Result<(), MigrationError> {
+    let mut file =
+        tokio::fs::File::create(path)
+            .await
+            .map_err(|error| MigrationError::Runtime {
+                message: format!("Failed to create blob file: {error}"),
+            })?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| MigrationError::Runtime {
+            message: format!("Failed to read blob response: {error}"),
+        })?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| MigrationError::Runtime {
+                message: format!("Failed to write blob file: {error}"),
+            })?;
+    }
+    file.flush()
+        .await
+        .map_err(|error| MigrationError::Runtime {
+            message: format!("Failed to flush blob file: {error}"),
+        })?;
+    Ok(())
 }
 
 #[cfg(test)]
