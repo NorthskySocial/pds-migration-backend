@@ -1,4 +1,4 @@
-use actix_web::{http::StatusCode, test, App};
+use actix_web::{http::StatusCode, test, web, App};
 use pdsmigration_common::repo_car_path;
 use pdsmigration_web::api::export_pds_api;
 use serde_json::json;
@@ -6,7 +6,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod common;
-use common::{session_body, unique_did};
+use common::{create_test_config, session_body, unique_did};
 
 #[actix_rt::test]
 async fn export_repo_sync_api_succeeds_with_mocked_pds() {
@@ -32,7 +32,12 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds() {
     let car_path = repo_car_path(&did).expect("downloads dir resolvable");
     let _ = std::fs::remove_file(&car_path);
 
-    let app = test::init_service(App::new().service(export_pds_api)).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(create_test_config()))
+            .service(export_pds_api),
+    )
+    .await;
     let req = test::TestRequest::post()
         .uri("/export-repo")
         .set_json(json!({
@@ -51,7 +56,12 @@ async fn export_repo_sync_api_succeeds_with_mocked_pds() {
 
 #[actix_rt::test]
 async fn export_repo_sync_api_returns_runtime_error_when_pds_unreachable() {
-    let app = test::init_service(App::new().service(export_pds_api)).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(create_test_config()))
+            .service(export_pds_api),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/export-repo")

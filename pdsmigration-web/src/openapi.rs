@@ -1,5 +1,6 @@
 use crate::errors::ApiError;
 use crate::errors::ApiErrorBody;
+use crate::migration_tracker::MigrationStatus;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
@@ -31,6 +32,7 @@ impl Modify for SecurityAddon {
         request_token_api,
         migrate_preferences_api,
         migrate_plc_api,
+        get_migrations_api,
         get_service_auth_api,
         enqueue_export_blobs_job_api,
         enqueue_export_repo_job_api,
@@ -49,6 +51,7 @@ impl Modify for SecurityAddon {
             UploadBlobsApiRequest,
             MigratePreferencesApiRequest,
             MigratePlcApiRequest,
+            MigrationStatus,
             ServiceAuthApiRequest,
             ServiceAuthResponse,
             // Jobs

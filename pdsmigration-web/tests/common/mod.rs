@@ -4,6 +4,7 @@
 
 use pdsmigration_web::background_jobs::{JobManager, JobStatus};
 use pdsmigration_web::config::AppConfig;
+use pdsmigration_web::migration_tracker::MigrationTracker;
 use serde_json::json;
 use std::time::Duration;
 use uuid::Uuid;
@@ -23,6 +24,7 @@ pub fn create_test_config() -> AppConfig {
         artifact_retention_secs: 86400,
         artifact_gc_interval_secs: 3600,
         auth_token: None,
+        migration_tracker: MigrationTracker::default(),
     }
 }
 

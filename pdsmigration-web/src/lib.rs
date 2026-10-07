@@ -2,6 +2,7 @@ pub mod api;
 pub mod background_jobs;
 pub mod config;
 pub mod errors;
+pub mod migration_tracker;
 pub mod storage_gc;
 
 pub use actix_web::web::Json;
