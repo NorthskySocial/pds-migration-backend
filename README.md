@@ -156,7 +156,7 @@ The web service provides the following HTTP POST endpoints for migration:
 Additional endpoints:
 
 - `/health` - Health check endpoint
-- `/migrations` - Count of ongoing migrations and capacity status
+- `/migrations` - Migrations capacity status
 - `/metrics` - Prometheus metrics
 
 ## Testing
