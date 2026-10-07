@@ -50,6 +50,7 @@ async fn upload_job_retries_after_request_timeout() {
                 pds_host: destination.uri(),
                 did: did.clone(),
                 token: "destination-jwt".to_string(),
+                is_missing_blob_request: false,
             },
             1,
             3,

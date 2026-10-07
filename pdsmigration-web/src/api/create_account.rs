@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
+use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::{create_account, CreateAccountRequest, REDACTED};
 use serde::{Deserialize, Serialize};
@@ -70,7 +71,7 @@ impl fmt::Debug for CreateAccountApiRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(
+#[tracing::instrument(skip(config, req), fields(
     email = %req.email,
     handle = %req.handle,
     pds_host = %req.pds_host,
@@ -78,6 +79,7 @@ impl fmt::Debug for CreateAccountApiRequest {
 ))]
 #[post("/create-account")]
 pub async fn create_account_api(
+    config: Data<AppConfig>,
     req: Json<CreateAccountApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
@@ -102,32 +104,37 @@ pub async fn create_account_api(
         }
     })?;
 
-    create_account(
-        req.pds_host.as_str(),
-        &CreateAccountRequest {
-            did: did_parsed,
-            email: Some(req.email.clone()),
-            handle,
-            invite_code: Some(req.invite_code.clone()),
-            password: Some(req.password.clone()),
-            recovery_key: req.recovery_key.clone(),
-            verification_code: Some(String::from("")),
-            verification_phone: None,
-            plc_op: None,
-            token: Some(req.token.clone()),
-        },
-    )
-    .await
-    .map_err(|error| {
-        tracing::error!(
-            "[{}] Create account failed on {} with invite code {}: {}",
-            did,
-            req.pds_host,
-            req.invite_code,
-            error
-        );
-        ApiError::from(error)
-    })?;
+    config
+        .migration_tracker
+        .track(&did, false, async {
+            create_account(
+                req.pds_host.as_str(),
+                &CreateAccountRequest {
+                    did: did_parsed,
+                    email: Some(req.email.clone()),
+                    handle,
+                    invite_code: Some(req.invite_code.clone()),
+                    password: Some(req.password.clone()),
+                    recovery_key: req.recovery_key.clone(),
+                    verification_code: Some(String::from("")),
+                    verification_phone: None,
+                    plc_op: None,
+                    token: Some(req.token.clone()),
+                },
+            )
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    "[{}] Create account failed on {} with invite code {}: {}",
+                    did,
+                    req.pds_host,
+                    req.invite_code,
+                    error
+                );
+                ApiError::from(error)
+            })
+        })
+        .await?;
 
     tracing::info!(
         "[{}] Account created successfully - Used invite code {}",

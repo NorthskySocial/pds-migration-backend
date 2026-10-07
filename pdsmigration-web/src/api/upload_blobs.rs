@@ -18,6 +18,8 @@ pub struct UploadBlobsApiRequest {
     pub did: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub token: String,
+    #[schema(example = true)]
+    pub is_missing_blob_request: bool,
 }
 
 impl fmt::Debug for UploadBlobsApiRequest {
@@ -26,6 +28,7 @@ impl fmt::Debug for UploadBlobsApiRequest {
             .field("pds_host", &self.pds_host)
             .field("did", &self.did)
             .field("token", &REDACTED)
+            .field("is_missing_blob_request", &self.is_missing_blob_request)
             .finish()
     }
 }
@@ -36,6 +39,7 @@ impl From<UploadBlobsApiRequest> for UploadBlobsRequest {
             pds_host: req.pds_host,
             did: req.did,
             token: req.token,
+            is_missing_blob_request: req.is_missing_blob_request,
         }
     }
 }
@@ -85,6 +89,7 @@ mod tests {
             pds_host: "https://pds.example.com".to_string(),
             did: "did:plc:abc123".to_string(),
             token: "supersecret-jwt".to_string(),
+            is_missing_blob_request: true,
         };
         let dbg = format!("{:?}", req);
         assert!(dbg.contains(REDACTED));

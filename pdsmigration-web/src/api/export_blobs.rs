@@ -21,6 +21,7 @@ pub struct ExportBlobsApiRequest {
     pub origin_token: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub destination_token: String,
+    #[schema(example = true)]
     pub is_missing_blob_request: bool,
 }
 

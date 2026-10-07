@@ -48,6 +48,9 @@ mod tests {
 
     #[actix_rt::test]
     async fn migrations_endpoint_returns_count() {
+        let ongoing_did = "did:plc:abcd1234efgh5678ijkl";
+        let tracker = MigrationTracker::new(Duration::from_secs(60), Some(0));
+        tracker.refresh(ongoing_did);
         let config = AppConfig {
             port: 8080,
             workers: 1,
@@ -59,7 +62,7 @@ mod tests {
             artifact_retention_secs: 60,
             artifact_gc_interval_secs: 60,
             auth_token: Some("secret".to_string()),
-            migration_tracker: MigrationTracker::new(Duration::from_secs(60), 1),
+            migration_tracker: tracker,
         };
         let app = test::init_service(
             App::new()
@@ -72,14 +75,24 @@ mod tests {
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), StatusCode::OK);
         let body: serde_json::Value = test::read_body_json(response).await;
-        assert_eq!(body["has_capacity"], true);
+        assert_eq!(body["has_capacity"], false);
         assert!(body.get("did").is_none());
 
         let request = test::TestRequest::get()
-            .uri("/migrations?did=did%3Aplc%3Aabcd1234efgh5678ijkl")
+            .uri(&format!("/migrations?did={ongoing_did}"))
             .to_request();
         let response = test::call_service(&app, request).await;
         assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["has_capacity"], true);
+
+        let request = test::TestRequest::get()
+            .uri("/migrations?did=did%3Aplc%3Aefgh5678ijklabcd1234")
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["has_capacity"], false);
 
         let request = test::TestRequest::get()
             .uri("/migrations?did=not-a-did")

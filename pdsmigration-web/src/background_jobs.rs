@@ -277,6 +277,7 @@ impl JobManager {
     ) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
+        self.migration_tracker.refresh(&did);
         let pds_host = request.pds_host.clone();
         tracing::info!(
             "[{}] Spawning upload_blobs job {} for {} (concurrency={}, max_attempts={})",
@@ -296,6 +297,8 @@ impl JobManager {
         }
 
         let state = self.state.clone();
+        let migration_tracker = self.migration_tracker.clone();
+        let is_missing_blob_request = request.is_missing_blob_request;
         tokio::spawn(async move {
             {
                 let mut st = state.write().await;
@@ -305,10 +308,12 @@ impl JobManager {
             let result =
                 upload_blobs_api_job(id, state.clone(), request, concurrent_tasks, max_attempts)
                     .await;
+            let succeeded = result.is_ok();
             {
                 let mut st = state.write().await;
                 st.finalize(id, result);
             }
+            migration_tracker.finish_job(&did, succeeded, is_missing_blob_request);
         });
 
         Ok(id)
@@ -318,6 +323,7 @@ impl JobManager {
     pub async fn spawn_export_blobs(&self, request: ExportBlobsRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
+        self.migration_tracker.refresh(&did);
         let origin = request.origin.clone();
         tracing::info!("[{}] Spawning export_blobs job {} from {}", did, id, origin);
         let rec = JobRecord::new(id, JobKind::ExportBlobs);
@@ -349,6 +355,7 @@ impl JobManager {
     pub async fn spawn_export_repo(&self, request: ExportPDSRequest) -> Result<Uuid, ApiError> {
         let id = Uuid::new_v4();
         let did = request.did.clone();
+        self.migration_tracker.refresh(&did);
         let pds_host = request.pds_host.clone();
         tracing::info!("[{}] Spawning export_repo job {} for {}", did, id, pds_host);
         let rec = JobRecord::new(id, JobKind::ExportRepo);
