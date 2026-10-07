@@ -18,7 +18,7 @@ pub struct UploadBlobsApiRequest {
     pub did: String,
     #[schema(example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature")]
     pub token: String,
-    #[schema(example = "true")]
+    #[schema(example = true)]
     pub is_missing_blob_request: bool,
 }
 
