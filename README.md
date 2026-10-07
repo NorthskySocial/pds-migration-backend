@@ -125,6 +125,8 @@ cargo test -p pdsmigration-common
 | `JOB_RETENTION_SECS`       | No       | `3600`                  | How long finished jobs are kept in memory before being pruned |
 | `ARTIFACT_RETENTION_SECS`  | No       | `86400`                 | How long local blob directories and repo CAR files are kept before being deleted |
 | `ARTIFACT_GC_INTERVAL_SECS`| No       | `3600`                  | How often the local artifact garbage collector runs |
+| `MIGRATION_LIMIT`          | No       | `-1`                    | Maximum distinct ongoing migrations; `-1` means capacity is unlimited |
+| `MIGRATION_TTL_SECS`       | No       | `1800`                  | Seconds before an inactive migration lease expires |
 
 ### Example .env file
 
@@ -154,6 +156,7 @@ The web service provides the following HTTP POST endpoints for migration:
 Additional endpoints:
 
 - `/health` - Health check endpoint
+- `/migrations` - Count of ongoing migrations and capacity status
 - `/metrics` - Prometheus metrics
 
 ## Testing

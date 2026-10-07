@@ -1,7 +1,8 @@
-use serde::Deserialize;
+use crate::migration_tracker::MigrationTracker;
 use std::env;
+use std::time::Duration;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AppConfig {
     pub port: u16,
     pub workers: usize,
@@ -13,6 +14,7 @@ pub struct AppConfig {
     pub artifact_retention_secs: u64,
     pub artifact_gc_interval_secs: u64,
     pub auth_token: Option<String>,
+    pub migration_tracker: MigrationTracker,
 }
 
 impl AppConfig {
@@ -36,6 +38,22 @@ impl AppConfig {
             artifact_gc_interval_secs > 0,
             "ARTIFACT_GC_INTERVAL_SECS must be greater than zero"
         );
+        let migration_limit = env::var("MIGRATION_LIMIT")
+            .unwrap_or_else(|_| "-1".to_string())
+            .parse()
+            .unwrap();
+        assert!(
+            migration_limit >= -1,
+            "MIGRATION_LIMIT must be -1 or greater"
+        );
+        let migration_ttl_secs: u64 = env::var("MIGRATION_TTL_SECS")
+            .unwrap_or_else(|_| "1800".to_string())
+            .parse()
+            .unwrap();
+        assert!(
+            migration_ttl_secs > 0,
+            "MIGRATION_TTL_SECS must be greater than zero"
+        );
 
         Self {
             port: server_port.parse().unwrap(),
@@ -48,6 +66,10 @@ impl AppConfig {
             artifact_retention_secs: artifact_retention_secs.parse().unwrap(),
             artifact_gc_interval_secs,
             auth_token: env::var("AUTH_TOKEN").ok(),
+            migration_tracker: MigrationTracker::new(
+                Duration::from_secs(migration_ttl_secs),
+                migration_limit,
+            ),
         }
     }
 }
@@ -99,6 +121,8 @@ mod tests {
                 ("JOB_RETENTION_SECS", None),
                 ("ARTIFACT_RETENTION_SECS", None),
                 ("ARTIFACT_GC_INTERVAL_SECS", None),
+                ("MIGRATION_LIMIT", None),
+                ("MIGRATION_TTL_SECS", None),
                 ("AUTH_TOKEN", None),
             ],
             || {
@@ -112,6 +136,7 @@ mod tests {
                 assert_eq!(cfg.job_retention_secs, 3600);
                 assert_eq!(cfg.artifact_retention_secs, 86400);
                 assert_eq!(cfg.artifact_gc_interval_secs, 3600);
+                assert!(cfg.migration_tracker.status().has_capacity);
                 assert!(cfg.auth_token.is_none());
             },
         );
@@ -130,6 +155,8 @@ mod tests {
                 ("JOB_RETENTION_SECS", Some("120")),
                 ("ARTIFACT_RETENTION_SECS", Some("600")),
                 ("ARTIFACT_GC_INTERVAL_SECS", Some("60")),
+                ("MIGRATION_LIMIT", Some("0")),
+                ("MIGRATION_TTL_SECS", Some("300")),
                 ("AUTH_TOKEN", Some("secret-token")),
             ],
             || {
@@ -143,6 +170,8 @@ mod tests {
                 assert_eq!(cfg.job_retention_secs, 120);
                 assert_eq!(cfg.artifact_retention_secs, 600);
                 assert_eq!(cfg.artifact_gc_interval_secs, 60);
+                cfg.migration_tracker.refresh("did:plc:test");
+                assert!(!cfg.migration_tracker.status().has_capacity);
                 assert_eq!(cfg.auth_token.as_deref(), Some("secret-token"));
             },
         );
@@ -160,6 +189,14 @@ mod tests {
     #[should_panic(expected = "ARTIFACT_GC_INTERVAL_SECS must be greater than zero")]
     fn from_env_rejects_zero_artifact_gc_interval() {
         with_env_guard(&[("ARTIFACT_GC_INTERVAL_SECS", Some("0"))], || {
+            let _ = AppConfig::from_env();
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "MIGRATION_LIMIT must be -1 or greater")]
+    fn from_env_rejects_migration_limit_less_than_negative_one() {
+        with_env_guard(&[("MIGRATION_LIMIT", Some("-2"))], || {
             let _ = AppConfig::from_env();
         });
     }

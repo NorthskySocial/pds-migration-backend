@@ -1,4 +1,5 @@
 use crate::errors::ApiError;
+use crate::migration_tracker::MigrationTracker;
 use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
 use futures_util::StreamExt;
@@ -127,6 +128,7 @@ pub struct JobManager {
     state: Arc<RwLock<JobState>>,
     artifact_gc_guard: Arc<Mutex<()>>,
     retention: Duration,
+    migration_tracker: MigrationTracker,
 }
 
 #[derive(Default, Debug)]
@@ -226,7 +228,13 @@ impl JobManager {
             state: Arc::new(RwLock::new(JobState::default())),
             artifact_gc_guard: Arc::new(Mutex::new(())),
             retention,
+            migration_tracker: MigrationTracker::default(),
         }
+    }
+
+    pub fn with_migration_tracker(mut self, migration_tracker: MigrationTracker) -> Self {
+        self.migration_tracker = migration_tracker;
+        self
     }
 
     pub(crate) async fn lock_artifact_gc(&self) -> MutexGuard<'_, ()> {

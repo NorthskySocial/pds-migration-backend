@@ -8,6 +8,7 @@ use pdsmigration_web::{
     },
     background_jobs::{JobManager, DEFAULT_JOB_RETENTION_SECS},
     config::AppConfig,
+    migration_tracker::MigrationTracker,
     APPLICATION_JSON,
 };
 use serde_json::json;
@@ -29,6 +30,7 @@ mod integration_tests {
             artifact_retention_secs: 86400,
             artifact_gc_interval_secs: 3600,
             auth_token: None,
+            migration_tracker: MigrationTracker::default(),
         }
     }
 

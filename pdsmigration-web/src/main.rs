@@ -3,14 +3,15 @@ mod background_jobs;
 mod config;
 mod errors;
 mod middleware;
+mod migration_tracker;
 mod openapi;
 mod storage_gc;
 
 use crate::api::{
     activate_account_api, create_account_api, deactivate_account_api, enqueue_export_blobs_job_api,
     enqueue_export_repo_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
-    get_service_auth_api, health_check, import_pds_api, migrate_plc_api, migrate_preferences_api,
-    request_token_api,
+    get_migrations_api, get_service_auth_api, health_check, import_pds_api, migrate_plc_api,
+    migrate_preferences_api, request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
@@ -73,6 +74,7 @@ fn init_http_server(app_config: AppConfig, job_manager: JobManager) -> io::Resul
             .service(deactivate_account_api)
             .service(migrate_preferences_api)
             .service(migrate_plc_api)
+            .service(get_migrations_api)
             .service(get_service_auth_api)
             .service(health_check)
             .service(
@@ -109,7 +111,10 @@ async fn main() -> io::Result<()> {
     // Load App Config
     let app_config = AppConfig::from_env();
 
-    let job_manager = JobManager::new(Duration::from_secs(app_config.job_retention_secs));
+    let job_manager = JobManager::new(Duration::from_secs(app_config.job_retention_secs))
+        .with_migration_tracker(app_config.migration_tracker.clone());
+
+    tokio::spawn(app_config.migration_tracker.clone().run_cleanup());
 
     // Periodically delete local migration artifacts left behind by finished jobs
     tokio::spawn(storage_gc::run_periodic_gc(
@@ -129,6 +134,7 @@ async fn main() -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::config::AppConfig;
+    use crate::migration_tracker::MigrationTracker;
 
     #[test]
     fn test_init_http_server_success() {
@@ -143,6 +149,7 @@ mod tests {
             artifact_retention_secs: 86400,
             artifact_gc_interval_secs: 3600,
             auth_token: None,
+            migration_tracker: MigrationTracker::default(),
         };
 
         let result = init_http_server(app_config, JobManager::default());
@@ -163,6 +170,7 @@ mod tests {
             artifact_retention_secs: 86400,
             artifact_gc_interval_secs: 3600,
             auth_token: None,
+            migration_tracker: MigrationTracker::default(),
         };
 
         // Test that we can create an app with all routes
@@ -177,6 +185,7 @@ mod tests {
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)
                 .service(migrate_plc_api)
+                .service(get_migrations_api)
                 .service(get_service_auth_api)
                 .service(health_check),
         )

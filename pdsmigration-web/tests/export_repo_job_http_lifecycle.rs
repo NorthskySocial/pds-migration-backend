@@ -3,6 +3,7 @@ use pdsmigration_common::repo_car_path;
 use pdsmigration_web::{
     api::{enqueue_export_repo_job_api, get_job_api},
     background_jobs::{JobManager, DEFAULT_JOB_RETENTION_SECS},
+    migration_tracker::MigrationTracker,
 };
 use serde_json::json;
 use std::time::Duration;
@@ -28,7 +29,8 @@ async fn export_repo_job_reaches_success_through_http_api() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("ratelimit-remaining", "1000")
-                .set_body_bytes(payload),
+                .set_body_bytes(payload)
+                .set_delay(Duration::from_millis(100)),
         )
         .mount(&pds)
         .await;
@@ -36,13 +38,15 @@ async fn export_repo_job_reaches_success_through_http_api() {
     let car_path = repo_car_path(&did).expect("downloads dir resolvable");
     let _ = std::fs::remove_file(&car_path);
 
-    let config = create_test_config();
+    let tracker = MigrationTracker::new(Duration::from_secs(60), 2);
+    let mut config = create_test_config();
+    config.migration_tracker = tracker.clone();
+    let jobs = JobManager::new(Duration::from_secs(DEFAULT_JOB_RETENTION_SECS))
+        .with_migration_tracker(tracker.clone());
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(config))
-            .app_data(web::Data::new(JobManager::new(Duration::from_secs(
-                DEFAULT_JOB_RETENTION_SECS,
-            ))))
+            .app_data(web::Data::new(jobs))
             .service(enqueue_export_repo_job_api)
             .service(get_job_api),
     )

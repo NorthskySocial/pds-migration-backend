@@ -91,6 +91,7 @@ where
 fn is_bypass_path(path: &str) -> bool {
     // Allow health checks and documentation/metrics without auth
     path == "/health"
+        || path == "/migrations"
         || path.starts_with("/swagger-ui")
         || path.starts_with("/api-docs")
         || path == "/metrics"
@@ -112,6 +113,7 @@ fn is_authorized(headers: &HeaderMap, expected: &str) -> bool {
 mod tests {
     use super::*;
     use crate::config::AppConfig;
+    use crate::migration_tracker::MigrationTracker;
     use actix_web::http::header::{HeaderName, HeaderValue};
     use actix_web::http::StatusCode;
     use actix_web::{test as actix_test, web, App, HttpResponse};
@@ -128,6 +130,7 @@ mod tests {
             artifact_retention_secs: 86400,
             artifact_gc_interval_secs: 3600,
             auth_token: token.map(|t| t.to_string()),
+            migration_tracker: MigrationTracker::default(),
         }
     }
 
@@ -138,6 +141,7 @@ mod tests {
     #[test]
     fn is_bypass_path_allows_documented_routes() {
         assert!(is_bypass_path("/health"));
+        assert!(is_bypass_path("/migrations"));
         assert!(is_bypass_path("/metrics"));
         assert!(is_bypass_path("/swagger-ui/"));
         assert!(is_bypass_path("/swagger-ui/index.html"));
@@ -259,6 +263,23 @@ mod tests {
         .await;
 
         let req = actix_test::TestRequest::get().uri("/health").to_request();
+        let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[actix_rt::test]
+    async fn middleware_bypasses_migrations_without_token() {
+        let app = actix_test::init_service(
+            App::new()
+                .app_data(web::Data::new(config_with_token(Some("expected"))))
+                .wrap(AuthToken::new())
+                .route("/migrations", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get()
+            .uri("/migrations")
+            .to_request();
         let resp = actix_test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
