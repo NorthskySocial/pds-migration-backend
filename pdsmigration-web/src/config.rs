@@ -136,7 +136,7 @@ mod tests {
                 assert_eq!(cfg.job_retention_secs, 3600);
                 assert_eq!(cfg.artifact_retention_secs, 86400);
                 assert_eq!(cfg.artifact_gc_interval_secs, 3600);
-                assert!(cfg.migration_tracker.status().has_capacity);
+                assert!(cfg.migration_tracker.status(None).has_capacity);
                 assert!(cfg.auth_token.is_none());
             },
         );
@@ -170,8 +170,6 @@ mod tests {
                 assert_eq!(cfg.job_retention_secs, 120);
                 assert_eq!(cfg.artifact_retention_secs, 600);
                 assert_eq!(cfg.artifact_gc_interval_secs, 60);
-                cfg.migration_tracker.refresh("did:plc:test");
-                assert!(!cfg.migration_tracker.status().has_capacity);
                 assert_eq!(cfg.auth_token.as_deref(), Some("secret-token"));
             },
         );

@@ -114,12 +114,15 @@ async fn main() -> io::Result<()> {
     let job_manager = JobManager::new(Duration::from_secs(app_config.job_retention_secs))
         .with_migration_tracker(app_config.migration_tracker.clone());
 
-    tokio::spawn(app_config.migration_tracker.clone().run_cleanup());
-
     // Periodically delete local migration artifacts left behind by finished jobs
     tokio::spawn(storage_gc::run_periodic_gc(
         job_manager.clone(),
         Duration::from_secs(app_config.artifact_retention_secs),
+        Duration::from_secs(app_config.artifact_gc_interval_secs),
+    ));
+
+    tokio::spawn(migration_tracker::run_periodic_cleanup(
+        app_config.migration_tracker.clone(),
         Duration::from_secs(app_config.artifact_gc_interval_secs),
     ));
 
