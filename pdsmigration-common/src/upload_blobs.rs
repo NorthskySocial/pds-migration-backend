@@ -9,6 +9,7 @@ pub struct UploadBlobsRequest {
     pub pds_host: String,
     pub did: String,
     pub token: String,
+    pub is_missing_blob_request: bool,
 }
 
 impl fmt::Debug for UploadBlobsRequest {
@@ -81,6 +82,7 @@ mod tests {
             pds_host: "https://pds.example.com".to_string(),
             did: "did:plc:abc123".to_string(),
             token: "supersecret-jwt".to_string(),
+            is_missing_blob_request: true,
         };
         let dbg = format!("{:?}", req);
         assert!(dbg.contains(REDACTED));

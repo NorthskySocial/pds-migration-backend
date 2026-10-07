@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
+use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::{DeactivateAccountRequest, REDACTED};
 use serde::{Deserialize, Serialize};
@@ -49,15 +50,23 @@ impl From<DeactivateAccountApiRequest> for DeactivateAccountRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
+#[tracing::instrument(skip(config, req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/deactivate-account")]
 pub async fn deactivate_account_api(
+    config: Data<AppConfig>,
     req: Json<DeactivateAccountApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
     tracing::info!("[{}] Deactivate origin account request received", did);
-    pdsmigration_common::deactivate_account_api(req.into()).await?;
+    config
+        .migration_tracker
+        .track(
+            &did,
+            true,
+            pdsmigration_common::deactivate_account_api(req.into()),
+        )
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 

@@ -368,6 +368,7 @@ pub async fn upload_blobs(pds_session: PdsSession) -> Result<(), GuiError> {
         pds_host,
         did,
         token,
+        is_missing_blob_request: false,
     };
     match pdsmigration_common::upload_blobs_api(request).await {
         Ok(_) => {

@@ -100,6 +100,7 @@ async fn job_manager_blob_roundtrip() {
                 pds_host: destination.uri(),
                 did: did.clone(),
                 token: "destination-jwt".to_string(),
+                is_missing_blob_request: false,
             },
             1,
             4,

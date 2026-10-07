@@ -183,6 +183,7 @@ impl Screen for AdvancedHome {
                         pds_host: new_session_config.host().to_string(),
                         did: new_session_config.did().to_string(),
                         token: session.access_jwt.clone(),
+                        is_missing_blob_request: false,
                     };
                     match upload_blobs_api(upload_blob_request).await {
                         Ok(_) => {

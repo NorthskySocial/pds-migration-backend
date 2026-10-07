@@ -38,7 +38,8 @@ async fn export_repo_job_reaches_success_through_http_api() {
     let car_path = repo_car_path(&did).expect("downloads dir resolvable");
     let _ = std::fs::remove_file(&car_path);
 
-    let tracker = MigrationTracker::new(Duration::from_secs(60), 2);
+    let tracker = MigrationTracker::new(Duration::from_secs(60), Some(1));
+    assert!(tracker.status(None).has_capacity);
     let mut config = create_test_config();
     config.migration_tracker = tracker.clone();
     let jobs = JobManager::new(Duration::from_secs(DEFAULT_JOB_RETENTION_SECS))
@@ -62,6 +63,7 @@ async fn export_repo_job_reaches_success_through_http_api() {
         .to_request();
     let enqueue_resp = test::call_service(&app, enqueue).await;
     assert_eq!(enqueue_resp.status(), StatusCode::ACCEPTED);
+    assert!(!tracker.status(None).has_capacity);
     let body = test::read_body(enqueue_resp).await;
     let enqueued: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let job_id = enqueued["job_id"].as_str().expect("job_id in 202 body");

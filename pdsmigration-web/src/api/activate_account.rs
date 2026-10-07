@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
+use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::REDACTED;
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,7 @@ impl fmt::Debug for ActivateAccountApiRequest {
     }
 }
 
-#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
+#[tracing::instrument(skip(config, req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[utoipa::path(
     post,
     path = "/activate-account",
@@ -42,6 +43,7 @@ impl fmt::Debug for ActivateAccountApiRequest {
 )]
 #[post("/activate-account")]
 pub async fn activate_account_api(
+    config: Data<AppConfig>,
     req: Json<ActivateAccountApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
@@ -49,7 +51,14 @@ pub async fn activate_account_api(
     tracing::info!("[{}] Activate destination account request received", did);
     let token = req.token.clone();
     let pds_host = req.pds_host.clone();
-    pdsmigration_common::activate_account(pds_host.as_str(), did.as_str(), token.as_str()).await?;
+    config
+        .migration_tracker
+        .track(
+            &did,
+            true,
+            pdsmigration_common::activate_account(pds_host.as_str(), did.as_str(), token.as_str()),
+        )
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 

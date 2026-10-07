@@ -38,7 +38,7 @@ impl AppConfig {
             artifact_gc_interval_secs > 0,
             "ARTIFACT_GC_INTERVAL_SECS must be greater than zero"
         );
-        let migration_limit = env::var("MIGRATION_LIMIT")
+        let migration_limit: i64 = env::var("MIGRATION_LIMIT")
             .unwrap_or_else(|_| "-1".to_string())
             .parse()
             .unwrap();
@@ -46,6 +46,11 @@ impl AppConfig {
             migration_limit >= -1,
             "MIGRATION_LIMIT must be -1 or greater"
         );
+        let migration_limit = if migration_limit == -1 {
+            None
+        } else {
+            Some(usize::try_from(migration_limit).expect("MIGRATION_LIMIT must fit in usize"))
+        };
         let migration_ttl_secs: u64 = env::var("MIGRATION_TTL_SECS")
             .unwrap_or_else(|_| "1800".to_string())
             .parse()
@@ -170,6 +175,7 @@ mod tests {
                 assert_eq!(cfg.job_retention_secs, 120);
                 assert_eq!(cfg.artifact_retention_secs, 600);
                 assert_eq!(cfg.artifact_gc_interval_secs, 60);
+                assert!(!cfg.migration_tracker.status(None).has_capacity);
                 assert_eq!(cfg.auth_token.as_deref(), Some("secret-token"));
             },
         );

@@ -1,5 +1,6 @@
 use crate::api::EnqueueJobResponse;
 use crate::background_jobs::JobManager;
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
 use crate::Json;
@@ -51,16 +52,24 @@ impl From<ExportPDSApiRequest> for ExportPDSRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
+#[tracing::instrument(skip(config, req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/export-repo")]
-pub async fn export_pds_api(req: Json<ExportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
+pub async fn export_pds_api(
+    config: web::Data<AppConfig>,
+    req: Json<ExportPDSApiRequest>,
+) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
-    pdsmigration_common::export_pds_api(req_inner.into())
-        .await
-        .map_err(|e| ApiError::Runtime {
-            message: e.to_string(),
-        })?;
+    config
+        .migration_tracker
+        .track(&did, false, async {
+            pdsmigration_common::export_pds_api(req_inner.into())
+                .await
+                .map_err(|e| ApiError::Runtime {
+                    message: e.to_string(),
+                })
+        })
+        .await?;
     let response = HttpResponse::Ok().finish();
     tracing::info!(
         "[{}] Export repository request complete, returning HTTP {}",

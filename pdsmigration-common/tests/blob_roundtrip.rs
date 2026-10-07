@@ -92,6 +92,7 @@ async fn export_upload_blob_roundtrip() {
         pds_host: destination.uri(),
         did: did.clone(),
         token: "destination-jwt".to_string(),
+        is_missing_blob_request: false,
     })
     .await
     .expect("upload_blobs_api should succeed against mocked PDS");

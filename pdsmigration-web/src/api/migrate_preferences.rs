@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
+use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::{MigratePreferencesRequest, REDACTED};
 use serde::{Deserialize, Serialize};
@@ -57,15 +58,23 @@ impl From<MigratePreferencesApiRequest> for MigratePreferencesRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
+#[tracing::instrument(skip(config, req), fields(did = %req.did, origin = %req.origin, destination = %req.destination))]
 #[post("/migrate-preferences")]
 pub async fn migrate_preferences_api(
+    config: Data<AppConfig>,
     req: Json<MigratePreferencesApiRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
     let did = req.did.clone();
     tracing::info!("[{}] Migrate preferences request received", did);
-    pdsmigration_common::migrate_preferences_api(req.into()).await?;
+    config
+        .migration_tracker
+        .track(
+            &did,
+            false,
+            pdsmigration_common::migrate_preferences_api(req.into()),
+        )
+        .await?;
     Ok(HttpResponse::Ok().finish())
 }
 

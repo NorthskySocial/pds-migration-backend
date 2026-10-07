@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::post;
-use actix_web::web::Json;
+use actix_web::web::{Data, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::{ImportPDSRequest, REDACTED};
 use serde::{Deserialize, Serialize};
@@ -49,13 +50,23 @@ impl From<ImportPDSApiRequest> for ImportPDSRequest {
     ),
     tag = "pdsmigration-web"
 )]
-#[tracing::instrument(skip(req), fields(did = %req.did, pds_host = %req.pds_host))]
+#[tracing::instrument(skip(config, req), fields(did = %req.did, pds_host = %req.pds_host))]
 #[post("/import-repo")]
-pub async fn import_pds_api(req: Json<ImportPDSApiRequest>) -> Result<HttpResponse, ApiError> {
+pub async fn import_pds_api(
+    config: Data<AppConfig>,
+    req: Json<ImportPDSApiRequest>,
+) -> Result<HttpResponse, ApiError> {
     let req_inner = req.into_inner();
     let did = req_inner.did.clone();
     tracing::info!("[{}] Import repository request received", did);
-    pdsmigration_common::import_pds_api(req_inner.into()).await?;
+    config
+        .migration_tracker
+        .track(
+            &did,
+            false,
+            pdsmigration_common::import_pds_api(req_inner.into()),
+        )
+        .await?;
     tracing::info!("[{}] Repository imported successfully", did);
 
     Ok(HttpResponse::Ok().finish())
