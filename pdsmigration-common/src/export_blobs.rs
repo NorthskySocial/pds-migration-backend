@@ -1,10 +1,10 @@
-use crate::agent::{download_blob, login_helper, missing_blobs, wait_for_rate_limit};
+use crate::agent::{
+    download_blob, login_helper, missing_blobs, wait_for_rate_limit, write_blob_stream,
+};
 use crate::export_all_blobs::GetBlobRequest;
 use crate::{build_agent, did_blobs_path, format_cid, MigrationError, REDACTED};
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
-use tokio::io::AsyncWriteExt;
 
 #[derive(Deserialize, Serialize)]
 pub struct ExportBlobsRequest {
@@ -113,33 +113,46 @@ pub async fn export_blobs_api(
                 token: session.access_jwt.clone(),
             };
             match download_blob(agent.get_endpoint().await.as_str(), &get_blob_request).await {
-                Ok(mut stream) => {
-                    tracing::info!("[{}] Successfully fetched missing blob", did);
-                    let mut path = did_blobs_path(&session.did)?;
-                    path.push(&blob_cid_str);
-                    let mut file = tokio::fs::File::create(path.as_path()).await.unwrap();
-
-                    while let Some(chunk) = stream.next().await {
-                        let chunk = chunk.unwrap();
-                        file.write_all(&chunk).await.unwrap();
+                Ok(stream) => {
+                    let mut blob_path = did_blobs_path(&session.did)?;
+                    blob_path.push(&blob_cid_str);
+                    match write_blob_stream(blob_path, stream).await {
+                        Ok(()) => {
+                            tracing::info!("[{}] Successfully fetched missing blob", did);
+                            successful_blobs.push(blob_cid_str);
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                did = %did,
+                                cid = %blob_cid_str,
+                                step = "write_blob",
+                                error = %e,
+                                error_debug = ?e,
+                                "Failed to process blob",
+                            );
+                            invalid_blobs.push(blob_cid_str);
+                        }
                     }
-
-                    file.flush().await.unwrap();
-                    successful_blobs.push(blob_cid_str);
                 }
                 Err(e) => {
+                    tracing::error!(
+                        did = %did,
+                        cid = %blob_cid_str,
+                        step = "download_blob",
+                        error = %e,
+                        error_debug = ?e,
+                        "Failed to process blob",
+                    );
                     match e {
                         MigrationError::RateLimitReached => {
                             wait_for_rate_limit(did, "export_blobs").await;
                         }
                         _ => {
-                            tracing::error!("[{}] Failed to determine missing blobs", did);
                             return Err(MigrationError::Runtime {
                                 message: e.to_string(),
                             });
                         }
                     }
-                    tracing::error!("[{}] Failed to determine missing blobs", did);
                     invalid_blobs.push(blob_cid_str);
                 }
             }

@@ -70,6 +70,13 @@ async fn export_job_records_failed_blob_but_still_succeeds() {
     assert_eq!(progress.successful_blobs, 0, "no blob should succeed");
     assert_eq!(progress.invalid_blobs, 1, "the bad blob should be recorded");
     assert_eq!(progress.total, Some(1));
+    assert_eq!(record.blob_failures.len(), 1);
+    assert_eq!(record.blob_failures[0].cid, blob_cid);
+    assert_eq!(record.blob_failures[0].step, "download_blob");
+    assert!(record.blob_failures[0].error.contains("400"));
+    assert!(record.blob_failures[0].error.contains("bad blob"));
+    let response = serde_json::to_value(&record).expect("job record serializes");
+    assert_eq!(response["blob_failures"][0]["cid"], blob_cid);
 
     let _ = std::fs::remove_dir_all(&blob_dir);
 }
