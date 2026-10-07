@@ -1,6 +1,7 @@
 use crate::{
     build_agent, export_preferences, import_preferences, login_helper, MigrationError, REDACTED,
 };
+use bsky_sdk::api::app::bsky::actor::defs::Preferences;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -44,6 +45,28 @@ pub async fn migrate_preferences_api(req: MigratePreferencesRequest) -> Result<(
     .await?;
     tracing::info!("[{}] Exporting preferences from origin", did);
     let preferences = export_preferences(&agent).await?;
+    match serde_json::to_vec(&PreferencesPayload {
+        preferences: &preferences,
+    }) {
+        Ok(payload) => {
+            let details = preferences_payload_details(&payload);
+            tracing::info!(
+                "[{}] Preferences payload with bytes={}; valid_json={}; has_preferences_key={}; preference_count={}; error={:?}",
+                did,
+                details.payload_bytes,
+                details.valid_json,
+                details.has_preferences_key,
+                details.preference_count,
+                details.error
+            );
+        }
+        Err(error) => tracing::error!(
+            "[{}] Failed to serialize preferences payload to get details: {}",
+            did,
+            error
+        ),
+    }
+
     tracing::info!("[{}] Preferences exported; logging in to destination", did);
     login_helper(
         &agent,
@@ -58,9 +81,97 @@ pub async fn migrate_preferences_api(req: MigratePreferencesRequest) -> Result<(
     Ok(())
 }
 
+#[derive(Serialize)]
+struct PreferencesPayload<'a> {
+    preferences: &'a Preferences,
+}
+
+#[derive(Debug)]
+struct PreferencesPayloadDetails {
+    payload_bytes: usize,
+    valid_json: bool,
+    has_preferences_key: bool,
+    preference_count: usize,
+    error: Option<String>,
+}
+
+fn preferences_payload_details(payload: &[u8]) -> PreferencesPayloadDetails {
+    let payload_bytes = payload.len();
+    let value = match serde_json::from_slice::<serde_json::Value>(payload) {
+        Ok(value) => value,
+        Err(error) => {
+            return PreferencesPayloadDetails {
+                payload_bytes,
+                valid_json: false,
+                has_preferences_key: false,
+                preference_count: 0,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    let Some(items) = value
+        .get("preferences")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return PreferencesPayloadDetails {
+            payload_bytes,
+            valid_json: true,
+            has_preferences_key: false,
+            preference_count: 0,
+            error: Some("missing preferences array".to_string()),
+        };
+    };
+
+    PreferencesPayloadDetails {
+        payload_bytes,
+        valid_json: true,
+        has_preferences_key: true,
+        preference_count: items.len(),
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preferences_payload_details_reports_payload_sizes() {
+        let payload =
+            "{\"preferences\":[{\"$type\":\"feedPref\",\"value\":\"caf\u{e9} private\"}]}";
+        let payload = payload.as_bytes();
+
+        let details = preferences_payload_details(payload);
+
+        assert_eq!(details.payload_bytes, payload.len());
+        assert!(details.valid_json);
+        assert!(details.has_preferences_key);
+        assert_eq!(details.preference_count, 1);
+        assert!(!format!("{:?}", details).contains("private"));
+        assert_eq!(details.error, None);
+    }
+
+    #[test]
+    fn preferences_payload_details_reports_invalid_json() {
+        let details = preferences_payload_details(b"not json");
+
+        assert_eq!(details.payload_bytes, 8);
+        assert!(!details.valid_json);
+        assert!(!details.has_preferences_key);
+        assert_eq!(details.preference_count, 0);
+        assert!(details.error.is_some());
+    }
+
+    #[test]
+    fn preferences_payload_details_reports_missing_preferences_array() {
+        let details = preferences_payload_details(br#"{"other":[]}"#);
+
+        assert!(details.valid_json);
+        assert!(!details.has_preferences_key);
+        assert_eq!(details.preference_count, 0);
+        assert_eq!(details.error.as_deref(), Some("missing preferences array"));
+    }
 
     #[test]
     fn migrate_preferences_request_redacts_both_tokens() {
