@@ -15,7 +15,7 @@ struct MigrationsQuery {
     path = "/migrations",
     params(("did" = Option<String>, Query, description = "Optional DID to check")),
     responses(
-        (status = 200, description = "Current migration count and capacity", body = MigrationStatus),
+        (status = 200, description = "Current migration capacity", body = MigrationStatus),
         (status = 400, description = "Invalid DID", body = ApiErrorBody)
     ),
     security(()),
