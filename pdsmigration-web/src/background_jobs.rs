@@ -5,7 +5,7 @@ use derive_more::Display;
 use futures_util::StreamExt;
 use pdsmigration_common::{
     activate_account_agent, build_agent, deactivate_account, did_blobs_path, download_blob,
-    export_pds_api, format_cid, login_helper, missing_blobs, upload_blob_v2, wait_for_rate_limit,
+    export_pds_api, format_cid, login_helper, missing_blobs, upload_blob, wait_for_rate_limit,
     write_blob_stream, ExportBlobsRequest, ExportPDSRequest, GetBlobRequest, MigrationError,
     UploadBlobsRequest,
 };
@@ -701,7 +701,7 @@ async fn upload_blobs_api_job(
                     continue;
                 }
             };
-            match upload_blob_v2(&agent, file, &blob_cid_str).await {
+            match upload_blob(&agent, file, &blob_cid_str).await {
                 Ok(()) => {
                     tracing::info!(
                         "[{}][{}] Second pass succeeded for blob {}",
@@ -777,7 +777,7 @@ async fn upload_blob_with_retries(
     let mut attempt: u32 = 1;
     let mut rate_limit_waits: u32 = 0;
     loop {
-        match upload_blob_v2(agent, file.clone(), blob_cid).await {
+        match upload_blob(agent, file.clone(), blob_cid).await {
             Ok(()) => return Ok(()),
             Err(MigrationError::RateLimitReached) => {
                 if rate_limit_waits >= max_attempts.max(1) {
