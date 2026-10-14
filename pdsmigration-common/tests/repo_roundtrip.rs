@@ -10,6 +10,9 @@ use pdsmigration_common::unique_did;
 #[tokio::test]
 async fn export_import_repo_roundtrip() {
     let server = MockServer::start().await;
+    let bypass_key = "repo-roundtrip-key";
+    let previous_key = std::env::var("PDS_RATE_LIMIT_BYPASS_KEY").ok();
+    std::env::set_var("PDS_RATE_LIMIT_BYPASS_KEY", bypass_key);
     let did = unique_did("reporoundtrip");
     let payload: &[u8] = b"fake-car-payload-for-wiremock-roundtrip";
 
@@ -81,7 +84,22 @@ async fn export_import_repo_roundtrip() {
         payload,
         "importRepo should receive exactly the bytes export wrote"
     );
+    assert_eq!(
+        import_req
+            .headers
+            .get("x-ratelimit-bypass")
+            .and_then(|value| value.to_str().ok()),
+        Some(bypass_key)
+    );
+    assert!(received
+        .iter()
+        .filter(|request| request.url.path() != "/xrpc/com.atproto.repo.importRepo")
+        .all(|request| !request.headers.contains_key("x-ratelimit-bypass")));
 
     // Cleanup
     let _ = std::fs::remove_file(&car_path);
+    match previous_key {
+        Some(value) => std::env::set_var("PDS_RATE_LIMIT_BYPASS_KEY", value),
+        None => std::env::remove_var("PDS_RATE_LIMIT_BYPASS_KEY"),
+    }
 }

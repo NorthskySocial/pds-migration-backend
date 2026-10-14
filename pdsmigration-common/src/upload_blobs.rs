@@ -1,5 +1,5 @@
-use crate::agent::{login_helper, upload_blob};
-use crate::{build_agent, did_blobs_path, MigrationError, REDACTED};
+use crate::agent::login_helper;
+use crate::{build_agent, did_blobs_path, upload_blob, MigrationError, REDACTED};
 use bsky_sdk::api::agent::Configure;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -65,7 +65,9 @@ pub async fn upload_blobs_api(req: UploadBlobsRequest) -> Result<(), MigrationEr
             blob.file_name(),
             file.len()
         );
-        upload_blob(&agent, file).await?;
+        let file_name = blob.file_name();
+        let blob_id = file_name.to_string_lossy();
+        upload_blob(&agent, file, &blob_id).await?;
     }
 
     tracing::info!("[{}] Finished uploading blobs", did);

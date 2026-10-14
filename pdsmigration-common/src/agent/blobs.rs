@@ -1,3 +1,4 @@
+use super::with_rate_limit_bypass_header;
 use crate::{
     try_parse_error_response, GetBlobParams, GetBlobParamsData, GetBlobRequest, ListBlobsParams,
     ListBlobsParamsData, ListMissingBlobsParams, ListMissingBlobsParamsData, MigrationError,
@@ -160,23 +161,8 @@ pub async fn get_blob(agent: &BskyAgent, cid: Cid, did: Did) -> Result<Vec<u8>, 
     }
 }
 
-#[tracing::instrument(skip(agent))]
-pub async fn upload_blob(agent: &BskyAgent, input: Vec<u8>) -> Result<(), MigrationError> {
-    agent
-        .api
-        .com
-        .atproto
-        .repo
-        .upload_blob(input)
-        .await
-        .map_err(|error| MigrationError::Runtime {
-            message: error.to_string(),
-        })?;
-    Ok(())
-}
-
 #[tracing::instrument(skip(agent, input))]
-pub async fn upload_blob_v2(
+pub async fn upload_blob(
     agent: &BskyAgent,
     input: Vec<u8>,
     blob_id: &str,
@@ -200,13 +186,15 @@ pub async fn upload_blob_v2(
         input.len(),
         url
     );
-    let result = client
-        .post(&url)
-        .header("Content-Type", "application/octet-stream")
-        .bearer_auth(&session.access_jwt)
-        .body(input)
-        .send()
-        .await;
+    let result = with_rate_limit_bypass_header(
+        client
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .bearer_auth(&session.access_jwt)
+            .body(input),
+    )
+    .send()
+    .await;
 
     match result {
         Ok(output) => {
