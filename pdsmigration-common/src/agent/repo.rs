@@ -81,8 +81,14 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
             message: "No session available for repo import".to_string(),
         })?;
     let pds_host = agent.get_endpoint().await;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30 * 60))
+        .build()
+        .map_err(|error| MigrationError::Runtime {
+            message: error.to_string(),
+        })?;
     let response = with_rate_limit_bypass_header(
-        reqwest::Client::new()
+        client
             .post(format!("{pds_host}/xrpc/com.atproto.repo.importRepo"))
             .header("Content-Type", "application/vnd.ipld.car")
             .bearer_auth(&session.access_jwt)

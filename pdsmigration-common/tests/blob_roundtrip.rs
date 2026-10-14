@@ -114,6 +114,13 @@ async fn export_upload_blob_roundtrip() {
         payload,
         "uploadBlob should receive exactly the bytes export wrote"
     );
+    assert_eq!(
+        upload_req
+            .headers
+            .get("x-ratelimit-bypass")
+            .and_then(|value| value.to_str().ok()),
+        Some(bypass_key)
+    );
     assert!(received
         .iter()
         .filter(|request| request.url.path() != "/xrpc/com.atproto.repo.uploadBlob")
