@@ -127,6 +127,7 @@ cargo test -p pdsmigration-common
 | `ARTIFACT_GC_INTERVAL_SECS`| No       | `3600`                  | How often the local artifact garbage collector runs |
 | `MIGRATION_LIMIT`          | No       | `-1`                    | Maximum distinct ongoing migrations; `-1` means capacity is unlimited |
 | `MIGRATION_TTL_SECS`       | No       | `1800`                  | Seconds before an inactive migration lease expires |
+| `PDS_RATE_LIMIT_BYPASS_KEY`     | No       |                         | Key to bypass PDS rate limits; sent in the `x-ratelimit-bypass` header on PDS requests |
 
 ### Example .env file
 

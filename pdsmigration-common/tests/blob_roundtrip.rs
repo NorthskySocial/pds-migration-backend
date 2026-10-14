@@ -11,6 +11,9 @@ use pdsmigration_common::unique_did;
 async fn export_upload_blob_roundtrip() {
     let origin = MockServer::start().await;
     let destination = MockServer::start().await;
+    let bypass_key = "blob-roundtrip-key";
+    let previous_key = std::env::var("PDS_RATE_LIMIT_BYPASS_KEY").ok();
+    std::env::set_var("PDS_RATE_LIMIT_BYPASS_KEY", bypass_key);
 
     let did = unique_did("blobroundtrip");
     let payload: &[u8] = b"fake-blob-bytes-for-wiremock-roundtrip";
@@ -111,7 +114,15 @@ async fn export_upload_blob_roundtrip() {
         payload,
         "uploadBlob should receive exactly the bytes export wrote"
     );
+    assert!(received
+        .iter()
+        .filter(|request| request.url.path() != "/xrpc/com.atproto.repo.uploadBlob")
+        .all(|request| !request.headers.contains_key("x-ratelimit-bypass")));
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&blob_dir);
+    match previous_key {
+        Some(value) => std::env::set_var("PDS_RATE_LIMIT_BYPASS_KEY", value),
+        None => std::env::remove_var("PDS_RATE_LIMIT_BYPASS_KEY"),
+    }
 }

@@ -20,7 +20,7 @@ bsky-sdk = { workspace = true }
 ipld-core = { workspace = true }
 tracing = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true, features = ["query", "stream"] }
+reqwest = { workspace = true, features = ["stream"] }
 derive_more = { workspace = true, features = ["display", "error"] }
 futures-core = "0.3.34"
 bytes = "1.12.1"

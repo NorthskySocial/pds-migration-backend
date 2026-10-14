@@ -1,3 +1,4 @@
+use super::with_rate_limit_bypass_header;
 use crate::{GetRepoRequest, MigrationError, APPLICATION_JSON};
 use bsky_sdk::BskyAgent;
 
@@ -73,19 +74,31 @@ pub async fn account_import(agent: &BskyAgent, filepath: &str) -> Result<(), Mig
         filepath,
         repo_bytes.len()
     );
-    agent
-        .api
-        .com
-        .atproto
-        .repo
-        .import_repo(repo_bytes)
+    let session = agent
+        .get_session()
         .await
-        .map_err(|error| {
-            tracing::error!("[{}] Failed to import account: {:?}", did_str, error);
-            MigrationError::Runtime {
-                message: error.to_string(),
-            }
+        .ok_or_else(|| MigrationError::Runtime {
+            message: "No session available for repo import".to_string(),
         })?;
+    let pds_host = agent.get_endpoint().await;
+    let response = with_rate_limit_bypass_header(
+        reqwest::Client::new()
+            .post(format!("{pds_host}/xrpc/com.atproto.repo.importRepo"))
+            .header("Content-Type", "application/vnd.ipld.car")
+            .bearer_auth(&session.access_jwt)
+            .body(repo_bytes),
+    )
+    .send()
+    .await
+    .map_err(|error| MigrationError::Runtime {
+        message: error.to_string(),
+    })?;
+    if !response.status().is_success() {
+        tracing::error!("[{}] Failed to import repo: {}", did_str, response.status());
+        return Err(MigrationError::Runtime {
+            message: format!("Repo import failed with HTTP {}", response.status()),
+        });
+    }
     tracing::info!("[{}] Successfully imported repo from {}", did_str, filepath);
     Ok(())
 }
