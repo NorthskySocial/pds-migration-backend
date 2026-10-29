@@ -1,3 +1,4 @@
+use super::account::validate_service_auth_pds;
 use crate::{
     CreateSessionOutputData, GetServiceAuthParams, GetServiceAuthParamsData, MigrationError,
 };
@@ -79,6 +80,8 @@ pub async fn login_helper(
 pub async fn get_service_auth(agent: &BskyAgent, aud: &str) -> Result<String, MigrationError> {
     let did = agent.did().await;
     let did_str = did.as_ref().map(|d: &Did| d.as_str()).unwrap_or("unknown");
+    let login_pds = agent.get_endpoint().await;
+    validate_service_auth_pds(did_str, &login_pds).await?;
     tracing::info!(
         "[{}] Requesting service auth token for aud {}",
         did_str,

@@ -8,10 +8,8 @@ use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
 use serde::Deserialize;
 
-pub const SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE: &str = concat!(
-    "We couldn't confirm your account with your current PDS. ",
-    "Verify your current PDS and try logging in again. ",
-);
+pub const SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE: &str =
+    "The origin PDS does not match the current PDS in the DID document.";
 
 #[derive(Deserialize)]
 struct TokenClaims {
@@ -65,6 +63,42 @@ async fn fetch_did_document(did: &str) -> Option<DidDocument> {
             None
         }
     }
+}
+
+pub(super) async fn validate_service_auth_pds(
+    did: &str,
+    login_pds: &str,
+) -> Result<(), MigrationError> {
+    let pds_endpoint = fetch_did_document(did).await.and_then(|document| {
+        document
+            .service
+            .iter()
+            .find(|service| service.id.ends_with("#atproto_pds"))
+            .and_then(|service| service.service_endpoint.as_ref())
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    });
+    let pds_origins_match = pds_endpoint
+        .as_deref()
+        .and_then(|endpoint| reqwest::Url::parse(endpoint).ok())
+        .zip(reqwest::Url::parse(login_pds).ok())
+        .is_some_and(|(endpoint, login)| {
+            endpoint.origin().ascii_serialization() == login.origin().ascii_serialization()
+        });
+
+    if pds_origins_match {
+        return Ok(());
+    }
+
+    tracing::error!(
+        "[{}] Service auth rejected because login PDS {} does not match the PDS in the DID document {}",
+        did,
+        login_pds,
+        pds_endpoint.as_deref().unwrap_or("unknown")
+    );
+    Err(MigrationError::BadRequest {
+        message: SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE.to_string(),
+    })
 }
 
 /// Logs why the PDS refused a service auth token
@@ -355,6 +389,38 @@ mod tests {
 
         std::env::set_var("PLC_DIRECTORY", "http://127.0.0.1:1");
         assert!(fetch_did_document("did:plc:ghi789").await.is_none());
+
+        std::env::remove_var("PLC_DIRECTORY");
+    }
+
+    #[tokio::test]
+    async fn validate_service_auth_pds_requires_a_matching_endpoint() {
+        let _guard = PLC_DIRECTORY_GUARD.lock().await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/did:plc:abc123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "service": [{
+                    "id": "#atproto_pds",
+                    "serviceEndpoint": "https://origin.example.com"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        std::env::set_var("PLC_DIRECTORY", server.uri());
+
+        validate_service_auth_pds("did:plc:abc123", "https://origin.example.com/")
+            .await
+            .expect("the login PDS should match the DID document");
+
+        let error = validate_service_auth_pds("did:plc:abc123", "https://other.example.com")
+            .await
+            .expect_err("a different login PDS must be rejected");
+        assert!(matches!(
+            error,
+            MigrationError::BadRequest { message }
+                if message == SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE
+        ));
 
         std::env::remove_var("PLC_DIRECTORY");
     }
