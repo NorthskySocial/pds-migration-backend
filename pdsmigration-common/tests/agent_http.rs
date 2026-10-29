@@ -2,7 +2,7 @@ use bsky_sdk::api::types::string::{Did, Handle};
 use futures_util::StreamExt;
 use pdsmigration_common::{
     create_account, download_blob, download_repo, CreateAccountRequest, GetBlobRequest,
-    GetRepoRequest, MigrationError, SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE,
+    GetRepoRequest, MigrationError, SERVICE_AUTH_TOKEN_SIGNATURE_REJECTED_MESSAGE,
 };
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -374,7 +374,7 @@ async fn create_account_bad_jwt_signature_returns_recovery_message() {
 
     match err {
         MigrationError::BadRequest { message } => {
-            assert_eq!(message, SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE)
+            assert_eq!(message, SERVICE_AUTH_TOKEN_SIGNATURE_REJECTED_MESSAGE)
         }
         other => panic!("expected a user-facing BadRequest, got {other:?}"),
     }

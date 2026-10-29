@@ -10,6 +10,8 @@ use serde::Deserialize;
 
 pub const SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE: &str =
     "The origin PDS does not match the current PDS in the DID document.";
+pub const SERVICE_AUTH_TOKEN_SIGNATURE_REJECTED_MESSAGE: &str =
+    "The PDS rejected the service auth token signature.";
 
 #[derive(Deserialize)]
 struct TokenClaims {
@@ -78,13 +80,17 @@ pub(super) async fn validate_service_auth_pds(
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
     });
-    let pds_origins_match = pds_endpoint
-        .as_deref()
-        .and_then(|endpoint| reqwest::Url::parse(endpoint).ok())
-        .zip(reqwest::Url::parse(login_pds).ok())
-        .is_some_and(|(endpoint, login)| {
-            endpoint.origin().ascii_serialization() == login.origin().ascii_serialization()
-        });
+    let pds_endpoint = pds_endpoint.ok_or_else(|| MigrationError::Upstream {
+        message: "Unable to verify the current PDS from the DID document.".to_string(),
+    })?;
+    let endpoint = reqwest::Url::parse(&pds_endpoint).map_err(|_| MigrationError::Upstream {
+        message: "Unable to verify the current PDS from the DID document.".to_string(),
+    })?;
+    let login = reqwest::Url::parse(login_pds).map_err(|_| MigrationError::Validation {
+        field: "Origin PDS URL is invalid".to_string(),
+    })?;
+    let pds_origins_match =
+        endpoint.origin().ascii_serialization() == login.origin().ascii_serialization();
 
     if pds_origins_match {
         return Ok(());
@@ -94,7 +100,7 @@ pub(super) async fn validate_service_auth_pds(
         "[{}] Service auth rejected because login PDS {} does not match the PDS in the DID document {}",
         did,
         login_pds,
-        pds_endpoint.as_deref().unwrap_or("unknown")
+        pds_endpoint
     );
     Err(MigrationError::BadRequest {
         message: SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE.to_string(),
@@ -236,7 +242,7 @@ pub async fn create_account(
                 log_service_token_diagnostics(did_str, account_request.token.as_deref()).await;
                 if error_message.starts_with("BadJwtSignature:") {
                     return Err(MigrationError::BadRequest {
-                        message: SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE.to_string(),
+                        message: SERVICE_AUTH_TOKEN_SIGNATURE_REJECTED_MESSAGE.to_string(),
                     });
                 }
                 return Err(MigrationError::Upstream {
@@ -421,6 +427,34 @@ mod tests {
             MigrationError::BadRequest { message }
                 if message == SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE
         ));
+
+        std::env::remove_var("PLC_DIRECTORY");
+    }
+
+    #[tokio::test]
+    async fn validate_service_auth_pds_reports_unavailable_did_data_as_upstream() {
+        let _guard = PLC_DIRECTORY_GUARD.lock().await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/did:plc:missing"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/did:plc:no-pds"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "service": []
+            })))
+            .mount(&server)
+            .await;
+        std::env::set_var("PLC_DIRECTORY", server.uri());
+
+        for did in ["did:plc:missing", "did:plc:no-pds"] {
+            let error = validate_service_auth_pds(did, "https://origin.example.com")
+                .await
+                .expect_err("DID data without a usable PDS must not be reported as a mismatch");
+            assert!(matches!(error, MigrationError::Upstream { .. }));
+        }
 
         std::env::remove_var("PLC_DIRECTORY");
     }
