@@ -255,6 +255,21 @@ pub async fn create_account(
                     .text()
                     .await
                     .unwrap_or_else(|_| "Unable to read response".to_string());
+                if status == reqwest::StatusCode::UNAUTHORIZED
+                    && serde_json::from_str::<serde_json::Value>(&response_text)
+                        .ok()
+                        .and_then(|body| {
+                            body.get("error")
+                                .and_then(serde_json::Value::as_str)
+                                .map(|error| error == "BadJwtSignature")
+                        })
+                        .unwrap_or(false)
+                {
+                    log_service_token_diagnostics(did_str, account_request.token.as_deref()).await;
+                    return Err(MigrationError::BadRequest {
+                        message: SERVICE_AUTH_TOKEN_SIGNATURE_REJECTED_MESSAGE.to_string(),
+                    });
+                }
                 tracing::error!(
                     "[{}] Failed to create account on {} - Received non-OK status on Create Account: {} - Response: {}",
                     did_str,
