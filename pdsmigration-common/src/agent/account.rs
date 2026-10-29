@@ -8,6 +8,11 @@ use bsky_sdk::BskyAgent;
 use ipld_core::ipld::Ipld;
 use serde::Deserialize;
 
+pub const SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE: &str = concat!(
+    "We couldn't confirm your account with your current PDS. ",
+    "Verify your current PDS and try logging in again. ",
+);
+
 #[derive(Deserialize)]
 struct TokenClaims {
     iss: Option<String>,
@@ -195,6 +200,11 @@ pub async fn create_account(
                     error_message
                 );
                 log_service_token_diagnostics(did_str, account_request.token.as_deref()).await;
+                if error_message.starts_with("BadJwtSignature:") {
+                    return Err(MigrationError::BadRequest {
+                        message: SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE.to_string(),
+                    });
+                }
                 return Err(MigrationError::Upstream {
                     message: error_message,
                 });

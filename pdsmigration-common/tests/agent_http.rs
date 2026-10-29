@@ -2,7 +2,7 @@ use bsky_sdk::api::types::string::{Did, Handle};
 use futures_util::StreamExt;
 use pdsmigration_common::{
     create_account, download_blob, download_repo, CreateAccountRequest, GetBlobRequest,
-    GetRepoRequest, MigrationError,
+    GetRepoRequest, MigrationError, SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE,
 };
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -351,6 +351,32 @@ async fn create_account_bad_request_surfaces_parsed_error_message() {
             );
         }
         other => panic!("expected Upstream for 400, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn create_account_bad_jwt_signature_returns_recovery_message() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/xrpc/com.atproto.server.createAccount"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+            "error": "BadJwtSignature",
+            "message": "jwt signature does not match jwt issuer",
+        })))
+        .mount(&server)
+        .await;
+
+    let request = create_account_request(Some("malformed-token".to_string()));
+    let err = create_account(&server.uri(), &request)
+        .await
+        .expect_err("a rejected service token should be an error");
+
+    match err {
+        MigrationError::BadRequest { message } => {
+            assert_eq!(message, SERVICE_AUTH_SIGNATURE_MISMATCH_MESSAGE)
+        }
+        other => panic!("expected a user-facing BadRequest, got {other:?}"),
     }
 }
 
