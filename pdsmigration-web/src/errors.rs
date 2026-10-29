@@ -188,6 +188,22 @@ mod tests {
         }
     }
 
+    #[actix_rt::test]
+    async fn bad_request_migration_error_returns_user_message_with_http_400() {
+        let message = "Check that the detected origin PDS is correct, then try again.";
+        let api: ApiError = MigrationError::BadRequest {
+            message: message.to_string(),
+        }
+        .into();
+        let response = api.error_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = to_bytes(response.into_body()).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(body["code"], "Validation");
+        assert_eq!(body["message"], message);
+    }
+
     #[test]
     fn from_migration_error_upstream() {
         let api: ApiError = MigrationError::Upstream {
