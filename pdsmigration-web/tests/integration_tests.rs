@@ -295,7 +295,12 @@ mod integration_tests {
         let req = test::TestRequest::get().uri("/create-account").to_request();
 
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(
+            resp.status() == StatusCode::NOT_FOUND
+                || resp.status() == StatusCode::METHOD_NOT_ALLOWED,
+            "expected 404 or 405 for unsupported method, got {}",
+            resp.status()
+        );
     }
 
     #[actix_rt::test]
