@@ -67,19 +67,22 @@ async fn fetch_did_document(did: &str) -> Option<DidDocument> {
     }
 }
 
+pub(crate) async fn get_pds_endpoint_from_did(did: &str) -> Option<String> {
+    fetch_did_document(did)
+        .await?
+        .service
+        .iter()
+        .find(|service| service.id.ends_with("#atproto_pds"))
+        .and_then(|service| service.service_endpoint.as_ref())
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
 pub(super) async fn validate_service_auth_pds(
     did: &str,
     login_pds: &str,
 ) -> Result<(), MigrationError> {
-    let pds_endpoint = fetch_did_document(did).await.and_then(|document| {
-        document
-            .service
-            .iter()
-            .find(|service| service.id.ends_with("#atproto_pds"))
-            .and_then(|service| service.service_endpoint.as_ref())
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-    });
+    let pds_endpoint = get_pds_endpoint_from_did(did).await;
     let pds_endpoint = pds_endpoint.ok_or_else(|| MigrationError::Upstream {
         message: "Unable to verify the current PDS from the DID document.".to_string(),
     })?;
@@ -410,6 +413,61 @@ mod tests {
 
         std::env::set_var("PLC_DIRECTORY", "http://127.0.0.1:1");
         assert!(fetch_did_document("did:plc:ghi789").await.is_none());
+
+        std::env::remove_var("PLC_DIRECTORY");
+    }
+
+    #[tokio::test]
+    async fn offered_current_pds_handle_is_rejected_but_custom_domain_is_allowed() {
+        let _guard = PLC_DIRECTORY_GUARD.lock().await;
+        let plc = MockServer::start().await;
+        let current_pds = MockServer::start().await;
+        let destination = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/did:plc:migrating"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "service": [{
+                    "id": "#atproto_pds",
+                    "serviceEndpoint": current_pds.uri()
+                }]
+            })))
+            .mount(&plc)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.server.describeServer"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "availableUserDomains": [".bsky.social"]
+            })))
+            .mount(&current_pds)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/xrpc/com.atproto.identity.resolveHandle"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "did": "did:plc:migrating"
+            })))
+            .mount(&destination)
+            .await;
+        std::env::set_var("PLC_DIRECTORY", plc.uri());
+
+        let offered = super::super::identity::check_handle_availability(
+            &destination.uri(),
+            "alice.bsky.social",
+            Some("did:plc:migrating"),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(offered, MigrationError::BadRequest { message } if message.contains("cannot be migrated"))
+        );
+
+        assert!(super::super::identity::check_handle_availability(
+            &destination.uri(),
+            "alice.example.com",
+            Some("did:plc:migrating"),
+        )
+        .await
+        .unwrap());
 
         std::env::remove_var("PLC_DIRECTORY");
     }
