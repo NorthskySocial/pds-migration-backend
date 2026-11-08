@@ -8,10 +8,10 @@ mod openapi;
 mod storage_gc;
 
 use crate::api::{
-    activate_account_api, create_account_api, deactivate_account_api, enqueue_export_blobs_job_api,
-    enqueue_export_repo_job_api, enqueue_upload_blobs_job_api, export_pds_api, get_job_api,
-    get_migrations_api, get_service_auth_api, health_check, import_pds_api, migrate_plc_api,
-    migrate_preferences_api, request_token_api,
+    activate_account_api, check_handle_api, create_account_api, deactivate_account_api,
+    enqueue_export_blobs_job_api, enqueue_export_repo_job_api, enqueue_upload_blobs_job_api,
+    export_pds_api, get_job_api, get_migrations_api, get_service_auth_api, health_check,
+    import_pds_api, migrate_plc_api, migrate_preferences_api, request_token_api,
 };
 use crate::background_jobs::JobManager;
 use crate::config::AppConfig;
@@ -64,6 +64,7 @@ fn init_http_server(app_config: AppConfig, job_manager: JobManager) -> io::Resul
             }))
             .service(request_token_api)
             .service(create_account_api)
+            .service(check_handle_api)
             .service(export_pds_api)
             .service(import_pds_api)
             .service(enqueue_export_blobs_job_api)
@@ -142,7 +143,7 @@ mod tests {
     #[test]
     fn test_init_http_server_success() {
         let app_config = AppConfig {
-            port: 8080,
+            port: 0,
             workers: 2,
             concurrent_tasks_per_job: 3,
             upload_max_attempts: 4,
@@ -182,6 +183,7 @@ mod tests {
                 .app_data(web::Data::new(app_config.clone()))
                 .service(request_token_api)
                 .service(create_account_api)
+                .service(check_handle_api)
                 .service(export_pds_api)
                 .service(import_pds_api)
                 .service(activate_account_api)

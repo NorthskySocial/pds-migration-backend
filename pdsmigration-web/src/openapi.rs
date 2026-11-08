@@ -24,6 +24,7 @@ impl Modify for SecurityAddon {
 #[openapi(
     paths(
         health_check,
+        check_handle_api,
         activate_account_api,
         create_account_api,
         deactivate_account_api,
@@ -43,6 +44,8 @@ impl Modify for SecurityAddon {
         schemas(
             ActivateAccountApiRequest,
             CreateAccountApiRequest,
+            CheckHandleApiRequest,
+            CheckHandleApiResponse,
             DeactivateAccountApiRequest,
             ExportPDSApiRequest,
             ImportPDSApiRequest,

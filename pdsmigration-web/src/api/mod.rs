@@ -1,4 +1,5 @@
 mod activate_account;
+mod check_handle;
 mod create_account;
 mod deactivate_account;
 mod export_blobs;
@@ -23,6 +24,7 @@ where
 }
 
 pub use activate_account::*;
+pub use check_handle::*;
 pub use create_account::*;
 pub use deactivate_account::*;
 pub use export_blobs::*;
