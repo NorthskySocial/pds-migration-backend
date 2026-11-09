@@ -2,6 +2,7 @@ use crate::errors::{ApiError, ApiErrorBody};
 use crate::{post, Json};
 use actix_web::HttpResponse;
 use pdsmigration_common::check_handle_availability;
+use bsky_sdk::api::types::string::Handle;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -40,6 +41,13 @@ pub struct CheckHandleApiResponse {
 #[post("/check-handle")]
 pub async fn check_handle_api(req: Json<CheckHandleApiRequest>) -> Result<HttpResponse, ApiError> {
     let req = req.into_inner();
+    if Handle::new(req.handle.clone()).is_err() {
+        return Ok(HttpResponse::Ok().json(CheckHandleApiResponse {
+            available: false,
+            message: Some("Handle is invalid".to_string()),
+        }));
+    }
+
     let available = check_handle_availability(&req.pds_host, &req.handle, req.did.as_deref())
         .await
         .map_err(ApiError::from)?;
@@ -76,5 +84,18 @@ mod tests {
 
         assert_eq!(status, actix_web::http::StatusCode::BAD_REQUEST);
         assert_eq!(body["message"], "pds_host");
+    }
+
+    #[actix_rt::test]
+    async fn invalid_handle_returns_invalid_message() {
+        let (status, body) = call_check_handle(serde_json::json!({
+            "handle": "alice.",
+            "pds_host": "https://pds.example.com"
+        }))
+        .await;
+
+        assert_eq!(status, actix_web::http::StatusCode::OK);
+        assert_eq!(body["available"], false);
+        assert_eq!(body["message"], "Handle is invalid");
     }
 }
