@@ -150,12 +150,13 @@ async fn latest_operation(did: &str, directory: &str) -> Result<(String, bool), 
         .map_err(|error| MigrationError::Upstream {
             message: format!("Unable to fetch PLC audit log: {error}"),
         })?;
-    if !response.status().is_success() {
-        return Err(MigrationError::Upstream {
-            message: format!(
-                "PLC directory returned status {} for audit log",
-                response.status()
-            ),
+    let status = response.status();
+    if status != reqwest::StatusCode::OK {
+        let message = format!("PLC directory returned status {status} for audit log");
+        return Err(if status.is_client_error() {
+            MigrationError::BadRequest { message }
+        } else {
+            MigrationError::Upstream { message }
         });
     }
 
@@ -265,12 +266,13 @@ async fn submit_tombstone_at(
         .map_err(|error| MigrationError::Upstream {
             message: format!("Unable to submit PLC tombstone: {error}"),
         })?;
-    if response.status() != reqwest::StatusCode::OK {
-        return Err(MigrationError::Upstream {
-            message: format!(
-                "PLC directory rejected tombstone with status {}",
-                response.status()
-            ),
+    let status = response.status();
+    if status != reqwest::StatusCode::OK {
+        let message = format!("PLC directory rejected tombstone with status {status}");
+        return Err(if status.is_client_error() {
+            MigrationError::BadRequest { message }
+        } else {
+            MigrationError::Upstream { message }
         });
     }
     Ok(())

@@ -61,8 +61,8 @@ pub async fn get_latest_plc_operation_api(did: Path<String>) -> Result<HttpRespo
     request_body = SubmitPlcTombstoneApiRequest,
     responses(
         (status = 200, description = "Tombstone accepted; DID data is cleared. PLC recovery/nullification rules still apply."),
-        (status = 400, description = "Invalid or stale tombstone", body = ApiErrorBody),
-        (status = 500, description = "PLC directory rejected or could not receive tombstone", body = ApiErrorBody)
+        (status = 400, description = "Invalid or stale tombstone, or PLC directory returned a 4xx response", body = ApiErrorBody),
+        (status = 500, description = "PLC directory returned a non-200 non-4xx response or request failed", body = ApiErrorBody)
     ),
     tag = "pdsmigration-web"
 )]
@@ -86,8 +86,8 @@ pub async fn submit_plc_tombstone_api(
     request_body = SignAndSubmitPlcTombstoneApiRequest,
     responses(
         (status = 200, description = "Tombstone signed and accepted by the PLC directory"),
-        (status = 400, description = "Invalid DID or rotation key", body = ApiErrorBody),
-        (status = 500, description = "PLC directory rejected or could not receive tombstone", body = ApiErrorBody)
+        (status = 400, description = "Invalid DID or rotation key, or PLC directory returned a 4xx response", body = ApiErrorBody),
+        (status = 500, description = "PLC directory returned a non-200 non-4xx response or request failed", body = ApiErrorBody)
     ),
     tag = "pdsmigration-web"
 )]
