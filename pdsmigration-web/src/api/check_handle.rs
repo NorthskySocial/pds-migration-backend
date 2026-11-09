@@ -1,8 +1,8 @@
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::{post, Json};
 use actix_web::HttpResponse;
-use pdsmigration_common::check_handle_availability;
 use bsky_sdk::api::types::string::Handle;
+use pdsmigration_common::check_handle_availability;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
