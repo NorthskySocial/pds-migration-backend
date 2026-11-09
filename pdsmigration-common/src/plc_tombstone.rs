@@ -476,8 +476,21 @@ mod tests {
         let signature = sign_tombstone(PREV, &private_key).unwrap();
         let signature = Base64UrlUnpadded::decode_vec(&signature).unwrap();
         let signature = secp256k1::ecdsa::Signature::from_compact(&signature).unwrap();
-        let unsigned_operation = BTreeMap::from([("prev", PREV), ("type", "plc_tombstone")]);
-        let payload = serde_ipld_dagcbor::to_vec(&unsigned_operation).unwrap();
+        let payload = serde_ipld_dagcbor::to_vec(&BTreeMap::from([
+            ("prev", PREV),
+            ("type", "plc_tombstone"),
+        ]))
+        .unwrap();
+        let expected_payload = hex::decode(concat!(
+            "a26470726576783b6261667972656961",
+            "62657166366c7667357472686b683736",
+            "7779366c376f35787267337269616970",
+            "37673334766a35663365786b6b713778",
+            "6e323464747970656d706c635f746f6d",
+            "6273746f6e65"
+        ))
+        .unwrap();
+        assert_eq!(payload, expected_payload);
         let hash = Sha256::digest(payload);
         #[allow(deprecated)]
         let message = Message::from_digest_slice(hash.as_ref()).unwrap();
