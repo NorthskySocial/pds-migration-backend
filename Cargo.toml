@@ -16,8 +16,12 @@ pdsmigration-common = { path = "pdsmigration-common", version = "0.22.0" }
 tokio = "1.54.1"
 reqwest = { version = "0.12.28", default-features = false, features = ["default-tls"] }
 bsky-sdk = { version = "0.1.24", default-features = false, features = ["default-client"] }
+hex = "0.4.3"
+secp256k1 = { version = "0.33.1", features = ["global-context"] }
+serde_ipld_dagcbor = "0.7.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha2 = "0.11.1"
 derive_more = "2.1.1"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

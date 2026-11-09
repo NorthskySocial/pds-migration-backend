@@ -3,8 +3,9 @@ use pdsmigration_web::{
     api::{
         activate_account_api, create_account_api, deactivate_account_api,
         enqueue_export_blobs_job_api, enqueue_export_repo_job_api, enqueue_upload_blobs_job_api,
-        export_pds_api, get_job_api, get_service_auth_api, health_check, import_pds_api,
-        migrate_plc_api, migrate_preferences_api, request_token_api,
+        export_pds_api, get_job_api, get_latest_plc_operation_api, get_service_auth_api,
+        health_check, import_pds_api, migrate_plc_api, migrate_preferences_api, request_token_api,
+        sign_and_submit_plc_tombstone_api, submit_plc_tombstone_api,
     },
     background_jobs::{JobManager, DEFAULT_JOB_RETENTION_SECS},
     config::AppConfig,
@@ -75,6 +76,9 @@ mod integration_tests {
                 .service(deactivate_account_api)
                 .service(migrate_preferences_api)
                 .service(migrate_plc_api)
+                .service(get_latest_plc_operation_api)
+                .service(submit_plc_tombstone_api)
+                .service(sign_and_submit_plc_tombstone_api)
                 .service(get_service_auth_api)
                 .service(enqueue_export_blobs_job_api)
                 .service(enqueue_export_repo_job_api)
