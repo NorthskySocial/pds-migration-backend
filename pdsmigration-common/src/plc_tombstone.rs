@@ -75,7 +75,7 @@ fn plc_directory() -> String {
     std::env::var("PLC_DIRECTORY").unwrap_or_else(|_| "https://plc.directory".to_string())
 }
 
-fn plc_url(directory: &str, did: &str) -> Result<reqwest::Url, MigrationError> {
+fn plc_url(directory: &str, path: &[&str]) -> Result<reqwest::Url, MigrationError> {
     let mut url = reqwest::Url::parse(directory).map_err(|_| MigrationError::Runtime {
         message: "PLC_DIRECTORY is not a valid URL".to_string(),
     })?;
@@ -84,13 +84,17 @@ fn plc_url(directory: &str, did: &str) -> Result<reqwest::Url, MigrationError> {
             message: "PLC_DIRECTORY must use HTTP or HTTPS".to_string(),
         });
     }
-    url.set_path(&format!("/{did}"));
+    url.path_segments_mut()
+        .map_err(|_| MigrationError::Runtime {
+            message: "PLC_DIRECTORY must use HTTP or HTTPS".to_string(),
+        })?
+        .pop_if_empty()
+        .extend(path.iter().copied());
     Ok(url)
 }
 
 async fn latest_operation(did: &str, directory: &str) -> Result<(String, bool), MigrationError> {
-    let mut url = plc_url(directory, did)?;
-    url.set_path(&format!("/{did}/log/audit"));
+    let url = plc_url(directory, &[did, "log", "audit"])?;
     let response = reqwest::Client::new()
         .get(url)
         .timeout(std::time::Duration::from_secs(10))
@@ -184,7 +188,7 @@ async fn submit_tombstone_at(
                 .to_string(),
         });
     }
-    let url = plc_url(directory, did)?;
+    let url = plc_url(directory, &[did])?;
     let operation = SignedTombstone {
         operation_type: "plc_tombstone",
         prev,
@@ -326,9 +330,16 @@ mod tests {
     #[tokio::test]
     async fn posts_signed_tombstone_after_freshness_check() {
         let server = MockServer::start().await;
-        mount_audit_log(&server, json!([audit_entry(PREV, false, "plc_operation")])).await;
+        let directory = format!("{}/proxy/plc", server.uri());
+        Mock::given(method("GET"))
+            .and(path(format!("/proxy/plc/{DID}/log/audit")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                audit_entry(PREV, false, "plc_operation")
+            ])))
+            .mount(&server)
+            .await;
         Mock::given(method("POST"))
-            .and(path(format!("/{DID}")))
+            .and(path(format!("/proxy/plc/{DID}")))
             .and(body_json(
                 json!({"type": "plc_tombstone", "prev": PREV, "sig": SIG}),
             ))
@@ -336,7 +347,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        submit_tombstone_at(DID, PREV, SIG, &server.uri())
+        submit_tombstone_at(DID, PREV, SIG, &directory)
             .await
             .unwrap();
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
