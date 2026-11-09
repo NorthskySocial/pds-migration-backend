@@ -1,7 +1,9 @@
 use crate::errors::{ApiError, ApiErrorBody};
 use crate::{post, Json};
 use actix_web::{get, web::Path, HttpResponse};
-use pdsmigration_common::{get_latest_plc_operation_cid, submit_plc_tombstone};
+use pdsmigration_common::{
+    get_latest_plc_operation_cid, sign_and_submit_plc_tombstone, submit_plc_tombstone,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -19,6 +21,17 @@ pub struct SubmitPlcTombstoneApiRequest {
     #[serde(deserialize_with = "super::deserialize_trimmed")]
     #[schema(example = "<base64url-signature>")]
     pub sig: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SignAndSubmitPlcTombstoneApiRequest {
+    #[serde(deserialize_with = "super::deserialize_trimmed")]
+    /// Hex-encoded 32-byte secp256k1 rotation private key. Sent to the server for signing.
+    #[schema(
+        example = "0000000000000000000000000000000000000000000000000000000000000001",
+        write_only = true
+    )]
+    pub private_key: String,
 }
 
 #[utoipa::path(
@@ -66,6 +79,31 @@ pub async fn submit_plc_tombstone_api(
     Ok(HttpResponse::Ok().finish())
 }
 
+#[utoipa::path(
+    post,
+    path = "/plc/{did}/tombstone/sign-and-submit",
+    params(("did" = String, Path, description = "DID to deactivate")),
+    request_body = SignAndSubmitPlcTombstoneApiRequest,
+    responses(
+        (status = 200, description = "Tombstone signed and accepted by the PLC directory"),
+        (status = 400, description = "Invalid DID or rotation key", body = ApiErrorBody),
+        (status = 500, description = "PLC directory rejected or could not receive tombstone", body = ApiErrorBody)
+    ),
+    tag = "pdsmigration-web"
+)]
+#[tracing::instrument(skip(req), fields(did = %did))]
+#[post("/plc/{did}/tombstone/sign-and-submit")]
+pub async fn sign_and_submit_plc_tombstone_api(
+    did: Path<String>,
+    req: Json<SignAndSubmitPlcTombstoneApiRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let req = req.into_inner();
+    sign_and_submit_plc_tombstone(&did, &req.private_key)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,5 +144,18 @@ mod tests {
         let body: Value = test::read_body_json(response).await;
         assert_eq!(body["code"], "Validation");
         assert_eq!(body["message"], "sig");
+    }
+
+    #[actix_rt::test]
+    async fn sign_and_submit_rejects_malformed_private_key_before_network_call() {
+        let app = test::init_service(App::new().service(sign_and_submit_plc_tombstone_api)).await;
+        let request = test::TestRequest::post()
+            .uri("/plc/did:plc:abc123/tombstone/sign-and-submit")
+            .set_json(serde_json::json!({"private_key": "bad key"}))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "Validation");
+        assert_eq!(body["message"], "private_key");
     }
 }

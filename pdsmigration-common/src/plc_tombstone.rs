@@ -2,7 +2,10 @@ use crate::MigrationError;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use bsky_sdk::api::types::string::Cid;
 use bsky_sdk::api::types::string::Did;
+use secp256k1::{Message, SecretKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Deserialize)]
@@ -41,6 +44,16 @@ pub async fn submit_plc_tombstone(
     submit_tombstone_at(&did, prev, signature, &directory).await
 }
 
+#[tracing::instrument(skip(private_key), fields(did = %did))]
+pub async fn sign_and_submit_plc_tombstone(
+    did: &str,
+    private_key: &str,
+) -> Result<(), MigrationError> {
+    let did = validate_did(did)?;
+    let directory = plc_directory();
+    sign_and_submit_tombstone_at(&did, private_key, &directory).await
+}
+
 fn validate_did(did: &str) -> Result<String, MigrationError> {
     let parsed = Did::new(did.to_string()).map_err(|_| MigrationError::Validation {
         field: "did".to_string(),
@@ -69,6 +82,40 @@ fn validate_signed_tombstone(prev: &str, signature: &str) -> Result<(), Migratio
         });
     }
     Ok(())
+}
+
+fn parse_rotation_key(private_key: &str) -> Result<SecretKey, MigrationError> {
+    let key_bytes = hex::decode(private_key).map_err(|_| MigrationError::Validation {
+        field: "private_key".to_string(),
+    })?;
+    let key_bytes: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| MigrationError::Validation {
+            field: "private_key".to_string(),
+        })?;
+    SecretKey::from_secret_bytes(key_bytes).map_err(|_| MigrationError::Validation {
+        field: "private_key".to_string(),
+    })
+}
+
+fn sign_tombstone(prev: &str, private_key: &SecretKey) -> Result<String, MigrationError> {
+    let unsigned_operation = BTreeMap::from([("prev", prev), ("type", "plc_tombstone")]);
+    let payload = serde_ipld_dagcbor::to_vec(&unsigned_operation).map_err(|error| {
+        MigrationError::Runtime {
+            message: format!("Unable to encode PLC tombstone: {error}"),
+        }
+    })?;
+    let hash = Sha256::digest(payload);
+    #[allow(deprecated)]
+    let message =
+        Message::from_digest_slice(hash.as_ref()).map_err(|error| MigrationError::Runtime {
+            message: format!("Unable to prepare PLC tombstone signature: {error}"),
+        })?;
+    let mut signature = private_key.sign_ecdsa(message);
+    signature.normalize_s();
+    Ok(Base64UrlUnpadded::encode_string(
+        &signature.serialize_compact(),
+    ))
 }
 
 fn plc_directory() -> String {
@@ -170,6 +217,17 @@ async fn latest_active_operation_cid(did: &str, directory: &str) -> Result<Strin
     Ok(prev)
 }
 
+async fn sign_and_submit_tombstone_at(
+    did: &str,
+    private_key: &str,
+    directory: &str,
+) -> Result<(), MigrationError> {
+    let private_key = parse_rotation_key(private_key)?;
+    let prev = latest_active_operation_cid(did, directory).await?;
+    let signature = sign_tombstone(&prev, &private_key)?;
+    submit_tombstone_at(did, &prev, &signature, directory).await
+}
+
 async fn submit_tombstone_at(
     did: &str,
     prev: &str,
@@ -230,6 +288,7 @@ mod tests {
     const CID_OLD: &str = "bafyreihujzsooxzzjdu7op4n7kkhehcm5df3j4tfyr4qy4blfva47pzhkm";
     const SIG: &str =
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const PRIVATE_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 
     fn audit_entry(cid: &str, nullified: bool, operation_type: &str) -> serde_json::Value {
         json!({
@@ -333,9 +392,11 @@ mod tests {
         let directory = format!("{}/proxy/plc", server.uri());
         Mock::given(method("GET"))
             .and(path(format!("/proxy/plc/{DID}/log/audit")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                audit_entry(PREV, false, "plc_operation")
-            ])))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([audit_entry(
+                PREV,
+                false,
+                "plc_operation"
+            )])))
             .mount(&server)
             .await;
         Mock::given(method("POST"))
@@ -353,6 +414,42 @@ mod tests {
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
+    #[tokio::test]
+    async fn signs_and_submits_tombstone_with_private_key() {
+        let server = MockServer::start().await;
+        let directory = format!("{}/proxy/plc", server.uri());
+        Mock::given(method("GET"))
+            .and(path(format!("/proxy/plc/{DID}/log/audit")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([audit_entry(
+                PREV,
+                false,
+                "plc_operation"
+            )])))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!("/proxy/plc/{DID}")))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        sign_and_submit_tombstone_at(DID, PRIVATE_KEY, &directory)
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 3);
+        let submitted: serde_json::Value = serde_json::from_slice(&requests[2].body).unwrap();
+        assert_eq!(submitted["type"], "plc_tombstone");
+        assert_eq!(submitted["prev"], PREV);
+        assert_eq!(
+            Base64UrlUnpadded::decode_vec(submitted["sig"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            64
+        );
+    }
+
     #[test]
     fn signature_must_be_unpadded_base64url_for_64_bytes() {
         assert!(validate_signed_tombstone(PREV, SIG).is_ok());
@@ -364,5 +461,27 @@ mod tests {
     fn did_must_be_plc() {
         assert!(validate_did(DID).is_ok());
         assert!(validate_did("did:web:example.com").is_err());
+    }
+
+    #[test]
+    fn rotation_key_must_be_valid_32_byte_hex() {
+        assert!(parse_rotation_key(PRIVATE_KEY).is_ok());
+        assert!(parse_rotation_key("not-a-key").is_err());
+        assert!(parse_rotation_key("01").is_err());
+    }
+
+    #[test]
+    fn signs_unsigned_tombstone_payload_with_rotation_key() {
+        let private_key = parse_rotation_key(PRIVATE_KEY).unwrap();
+        let signature = sign_tombstone(PREV, &private_key).unwrap();
+        let signature = Base64UrlUnpadded::decode_vec(&signature).unwrap();
+        let signature = secp256k1::ecdsa::Signature::from_compact(&signature).unwrap();
+        let unsigned_operation = BTreeMap::from([("prev", PREV), ("type", "plc_tombstone")]);
+        let payload = serde_ipld_dagcbor::to_vec(&unsigned_operation).unwrap();
+        let hash = Sha256::digest(payload);
+        #[allow(deprecated)]
+        let message = Message::from_digest_slice(hash.as_ref()).unwrap();
+
+        assert!(secp256k1::ecdsa::verify(&signature, message, &private_key.public_key()).is_ok());
     }
 }

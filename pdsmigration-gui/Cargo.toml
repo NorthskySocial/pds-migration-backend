@@ -21,7 +21,7 @@ egui = { version = "0.32" }
 eframe = { version = "0.32", features = ["glow", "wgpu"] }
 atrium-xrpc = "0.12.4"
 zip = { version = "9.5.0", default-features = false, features = ["aes-crypto"] }
-secp256k1 = { version = "0.33.1", features = ["global-context"] }
+secp256k1 = { workspace = true }
 multibase = "0.9.3"
 unsigned-varint = "0.8.0"
 rand = { version = "0.10.3", features = ["thread_rng"] }
@@ -31,11 +31,11 @@ egui_extras = { version = "0.32", default-features = false, features = ["image"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64ct = { version = "1.8.3", features = ["alloc"] }
-sha2 = "0.11.1"
-serde_ipld_dagcbor = "0.7.0"
+sha2 = { workspace = true }
+serde_ipld_dagcbor = { workspace = true }
 indexmap = { version = "2.14.2", features = ["serde"] }
 cid = "0.11.3"
-hex = "0.4.3"
+hex = { workspace = true }
 ipld-core = { workspace = true }
 rfd = "0.17"
 reqwest = { workspace = true }
