@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 derive_more = { workspace = true, features = ["display", "error"] }
 futures-core = "0.3.34"
-bytes = "1.12.1"
+bytes = "1.12.2"
 futures-util = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 base64ct = { version = "1.8.3", features = ["alloc"] }
