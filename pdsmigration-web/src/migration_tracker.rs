@@ -1,5 +1,7 @@
 use crate::errors::ApiError;
+use crate::metrics::MigrationMetrics;
 use bsky_sdk::api::types::string::Did;
+use prometheus::Registry;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::future::Future;
@@ -12,6 +14,7 @@ pub struct MigrationTracker {
     ttl: Duration,
     limit: Option<usize>,
     ongoing_migrations: Arc<Mutex<HashMap<Did, Instant>>>,
+    metrics: Arc<MigrationMetrics>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -25,7 +28,13 @@ impl MigrationTracker {
             ttl,
             limit,
             ongoing_migrations: Arc::new(Mutex::new(HashMap::new())),
+            metrics: Arc::new(MigrationMetrics::new(Registry::new())),
         }
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<MigrationMetrics>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     pub fn status(&self, did: Option<Did>) -> MigrationStatus {
@@ -44,10 +53,9 @@ impl MigrationTracker {
 
     pub fn refresh(&self, did: &str) {
         if let Ok(did) = did.parse::<Did>() {
-            self.ongoing_migrations
-                .lock()
-                .unwrap()
-                .insert(did, Instant::now());
+            let mut ongoing_migrations = self.ongoing_migrations.lock().unwrap();
+            ongoing_migrations.insert(did, Instant::now());
+            self.metrics.set_migrations_active(ongoing_migrations.len());
         }
     }
 
@@ -61,6 +69,7 @@ impl MigrationTracker {
         } else {
             ongoing_migrations.remove(&did);
         }
+        self.metrics.set_migrations_active(ongoing_migrations.len());
     }
 
     pub fn cleanup_expired(&self) -> usize {
@@ -68,11 +77,13 @@ impl MigrationTracker {
         let mut ongoing_migrations = self.ongoing_migrations.lock().unwrap();
         let previous_count = ongoing_migrations.len();
         ongoing_migrations.retain(|_, inserted_at| now.duration_since(*inserted_at) < self.ttl);
+        self.metrics.set_migrations_active(ongoing_migrations.len());
         previous_count - ongoing_migrations.len()
     }
 
-    pub async fn track<F, E>(
+    pub async fn track_operation<F, E>(
         &self,
+        operation: &str,
         did: &str,
         completes_migration: bool,
         callback: F,
@@ -85,6 +96,7 @@ impl MigrationTracker {
             field: "did".to_string(),
         })?;
 
+        let started = Instant::now();
         match callback.await {
             Ok(()) => {
                 let mut ongoing_migrations = self.ongoing_migrations.lock().unwrap();
@@ -108,9 +120,20 @@ impl MigrationTracker {
                         );
                     }
                 }
+                self.metrics.set_migrations_active(ongoing_migrations.len());
+                self.metrics
+                    .record_operation(operation, "success", "none", started.elapsed());
                 Ok(())
             }
             Err(error) => {
+                let error = error.into();
+                let error_type = match &error {
+                    ApiError::Validation { .. } => "validation",
+                    ApiError::Upstream { .. } => "upstream",
+                    ApiError::Runtime { .. } => "runtime",
+                    ApiError::Authentication { .. } => "authentication",
+                    ApiError::RateLimit { .. } => "rate_limit",
+                };
                 let mut ongoing_migrations = self.ongoing_migrations.lock().unwrap();
                 if ongoing_migrations.remove(&did).is_some() {
                     tracing::info!(
@@ -119,7 +142,10 @@ impl MigrationTracker {
                         "Migration removed after callback failure"
                     );
                 }
-                Err(error.into())
+                self.metrics.set_migrations_active(ongoing_migrations.len());
+                self.metrics
+                    .record_operation(operation, "error", error_type, started.elapsed());
+                Err(error)
             }
         }
     }
@@ -200,7 +226,7 @@ mod tests {
         let did = "did:plc:abcd1234efgh5678ijkl";
         let parsed_did: Did = did.parse().unwrap();
         tracker
-            .track(did, false, async { Ok::<(), ApiError>(()) })
+            .track_operation("migration", did, false, async { Ok::<(), ApiError>(()) })
             .await
             .unwrap();
 
@@ -219,7 +245,7 @@ mod tests {
             .unwrap()
             .insert(parsed_did.clone(), old_insert_time);
         tracker
-            .track(did, false, async { Ok::<(), ApiError>(()) })
+            .track_operation("migration", did, false, async { Ok::<(), ApiError>(()) })
             .await
             .unwrap();
 
@@ -240,7 +266,7 @@ mod tests {
             .insert(parsed_did.clone(), Instant::now());
 
         tracker
-            .track(did, true, async { Ok::<(), ApiError>(()) })
+            .track_operation("migration", did, true, async { Ok::<(), ApiError>(()) })
             .await
             .unwrap();
 
@@ -263,7 +289,7 @@ mod tests {
             .insert(parsed_did.clone(), Instant::now());
 
         let result = tracker
-            .track(did, false, async {
+            .track_operation("migration", did, false, async {
                 Err::<(), ApiError>(ApiError::Runtime {
                     message: "callback failed".to_string(),
                 })
@@ -287,7 +313,7 @@ mod tests {
         let callback_flag = callback_ran.clone();
 
         let result = tracker
-            .track("not-a-did", false, async move {
+            .track_operation("migration", "not-a-did", false, async move {
                 callback_flag.store(true, Ordering::SeqCst);
                 Ok::<(), ApiError>(())
             })

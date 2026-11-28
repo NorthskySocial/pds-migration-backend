@@ -61,7 +61,8 @@ pub async fn deactivate_account_api(
     tracing::info!("[{}] Deactivate origin account request received", did);
     config
         .migration_tracker
-        .track(
+        .track_operation(
+            "deactivate_account",
             &did,
             true,
             pdsmigration_common::deactivate_account_api(req.into()),

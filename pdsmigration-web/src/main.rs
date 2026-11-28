@@ -2,6 +2,7 @@ mod api;
 mod background_jobs;
 mod config;
 mod errors;
+mod metrics;
 mod middleware;
 mod migration_tracker;
 mod openapi;
@@ -41,8 +42,9 @@ use utoipa_swagger_ui::SwaggerUi;
 fn init_http_server(app_config: AppConfig, job_manager: JobManager) -> io::Result<Server> {
     let server_port = app_config.port;
     let worker_count = app_config.workers;
-    let prometheus = PrometheusMetricsBuilder::new("api")
+    let prometheus = PrometheusMetricsBuilder::new("pdsmigration")
         .endpoint("/metrics")
+        .registry(job_manager.metrics_registry())
         .build()
         .expect("Failed to build prometheus metrics");
     let server = HttpServer::new(move || {

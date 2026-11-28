@@ -30,6 +30,7 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 actix-web-prom = "0.10.0"
+prometheus = "0.14"
 derive_more = { workspace = true }
 utoipa = { version = "6.0.0", features = ["actix_extras"] }
 utoipa-swagger-ui = { version = "10.0.2", features = ["actix-web", "minified", "gzip"] }

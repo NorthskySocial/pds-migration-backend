@@ -61,7 +61,8 @@ pub async fn import_pds_api(
     tracing::info!("[{}] Import repository request received", did);
     config
         .migration_tracker
-        .track(
+        .track_operation(
+            "import_repo",
             &did,
             false,
             pdsmigration_common::import_pds_api(req_inner.into()),

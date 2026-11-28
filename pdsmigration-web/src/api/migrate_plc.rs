@@ -84,7 +84,12 @@ pub async fn migrate_plc_api(
     );
     config
         .migration_tracker
-        .track(&did, true, pdsmigration_common::migrate_plc_api(req.into()))
+        .track_operation(
+            "migrate_plc",
+            &did,
+            true,
+            pdsmigration_common::migrate_plc_api(req.into()),
+        )
         .await?;
     Ok(HttpResponse::Ok().finish())
 }

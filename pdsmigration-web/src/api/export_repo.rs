@@ -62,7 +62,7 @@ pub async fn export_pds_api(
     let did = req_inner.did.clone();
     config
         .migration_tracker
-        .track(&did, false, async {
+        .track_operation("export_repo", &did, false, async {
             pdsmigration_common::export_pds_api(req_inner.into())
                 .await
                 .map_err(|e| ApiError::Runtime {

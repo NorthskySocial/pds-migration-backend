@@ -1,4 +1,5 @@
 use crate::errors::ApiError;
+use crate::metrics::{migration_error_type, MigrationMetrics};
 use crate::migration_tracker::MigrationTracker;
 use bsky_sdk::api::agent::Configure;
 use derive_more::Display;
@@ -9,6 +10,7 @@ use pdsmigration_common::{
     write_blob_stream, ExportBlobsRequest, ExportPDSRequest, GetBlobRequest, MigrationError,
     UploadBlobsRequest,
 };
+use prometheus::Registry;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Used in schema attribute macros
 use serde_json::json;
@@ -139,11 +141,21 @@ pub struct JobManager {
     artifact_gc_guard: Arc<Mutex<()>>,
     retention: Duration,
     migration_tracker: MigrationTracker,
+    metrics: Arc<MigrationMetrics>,
 }
 
-#[derive(Default, Debug)]
 struct JobState {
     records: HashMap<Uuid, JobRecord>,
+    metrics: Arc<MigrationMetrics>,
+}
+
+impl Default for JobState {
+    fn default() -> Self {
+        Self {
+            records: HashMap::new(),
+            metrics: Arc::new(MigrationMetrics::new(Registry::new())),
+        }
+    }
 }
 
 impl JobState {
@@ -160,6 +172,7 @@ impl JobState {
         if let Some(r) = self.records.get_mut(&id) {
             r.status = JobStatus::Running;
             r.started_at = Some(now_millis());
+            self.metrics.job_started(&r.kind.to_string());
             tracing::info!(
                 job_id = %r.id,
                 kind = %r.kind,
@@ -171,11 +184,14 @@ impl JobState {
     pub fn finalize(&mut self, id: Uuid, result: Result<(), MigrationError>) {
         if let Some(r) = self.records.get_mut(&id) {
             let elapsed_ms = r.started_at.map(|s| now_millis().saturating_sub(s));
+            let elapsed = Duration::from_millis(elapsed_ms.unwrap_or(0));
             let progress = r.progress.clone().unwrap_or_default();
             match result {
                 Ok(_) => {
                     r.status = JobStatus::Success;
                     r.finished_at = Some(now_millis());
+                    self.metrics
+                        .job_finished(&r.kind.to_string(), "success", "none", elapsed);
                     tracing::info!(
                         job_id = %r.id,
                         kind = %r.kind,
@@ -188,9 +204,12 @@ impl JobState {
                 }
                 Err(e) => {
                     let msg = format!("{}", e);
+                    let error_type = migration_error_type(&e);
                     r.status = JobStatus::Error;
                     r.error = Some(msg.clone());
                     r.finished_at = Some(now_millis());
+                    self.metrics
+                        .job_finished(&r.kind.to_string(), "error", error_type, elapsed);
                     tracing::error!(
                         job_id = %r.id,
                         kind = %r.kind,
@@ -220,6 +239,7 @@ impl JobState {
             if let Some(progress) = r.progress.as_mut() {
                 progress.successful_blobs += 1;
             }
+            self.metrics.record_blob(&r.kind.to_string(), "success");
         }
     }
 
@@ -228,7 +248,15 @@ impl JobState {
             if let Some(progress) = r.progress.as_mut() {
                 progress.invalid_blobs += 1;
             }
+            if matches!(r.kind, JobKind::ExportBlobs | JobKind::UploadBlobs) {
+                self.metrics.record_blob(&r.kind.to_string(), "error");
+            }
             if let Some(blob_failure) = blob_failure {
+                self.metrics.record_blob_failure(
+                    &r.kind.to_string(),
+                    &blob_failure.step,
+                    "reported",
+                );
                 r.blob_failures.push(blob_failure);
             }
         }
@@ -237,17 +265,27 @@ impl JobState {
 
 impl JobManager {
     pub fn new(retention: Duration) -> Self {
+        let metrics = Arc::new(MigrationMetrics::new(Registry::new()));
         Self {
-            state: Arc::new(RwLock::new(JobState::default())),
+            state: Arc::new(RwLock::new(JobState {
+                records: HashMap::new(),
+                metrics: metrics.clone(),
+            })),
             artifact_gc_guard: Arc::new(Mutex::new(())),
             retention,
             migration_tracker: MigrationTracker::default(),
+            metrics,
         }
     }
 
     pub fn with_migration_tracker(mut self, migration_tracker: MigrationTracker) -> Self {
+        let migration_tracker = migration_tracker.with_metrics(self.metrics.clone());
         self.migration_tracker = migration_tracker;
         self
+    }
+
+    pub fn metrics_registry(&self) -> Registry {
+        self.metrics.registry()
     }
 
     pub(crate) async fn lock_artifact_gc(&self) -> MutexGuard<'_, ()> {
@@ -294,6 +332,7 @@ impl JobManager {
             let mut st = self.state.write().await;
             st.prune_finished(self.retention);
             st.records.insert(id, rec);
+            st.metrics.job_enqueued("upload_blobs");
         }
 
         let state = self.state.clone();
@@ -333,6 +372,7 @@ impl JobManager {
             let mut st = self.state.write().await;
             st.prune_finished(self.retention);
             st.records.insert(id, rec);
+            st.metrics.job_enqueued("export_blobs");
         }
 
         let state = self.state.clone();
@@ -366,6 +406,7 @@ impl JobManager {
             st.prune_finished(self.retention);
             st.records.insert(id, rec);
             st.update_total(id, 1);
+            st.metrics.job_enqueued("export_repo");
         }
 
         let state = self.state.clone();
@@ -531,6 +572,7 @@ async fn export_blobs_api_job(
                 Err(e) => {
                     if matches!(e, MigrationError::RateLimitReached) {
                         wait_for_rate_limit(did, &JobKind::ExportBlobs.to_string()).await;
+                        state.read().await.metrics.record_rate_limit("export_blobs");
                     }
                     tracing::error!(
                         did = %did,
@@ -624,6 +666,7 @@ async fn upload_blobs_api_job(
         .map(|blob| {
             let agent = agent.clone();
             let did_inner = did_owned.clone();
+            let state = state.clone();
             async move {
                 let path = blob.path();
                 let blob_cid_str = blob.file_name().to_string_lossy().to_string();
@@ -646,9 +689,16 @@ async fn upload_blobs_api_job(
                     blob_cid_str,
                     file.len()
                 );
-                let result =
-                    upload_blob_with_retries(&agent, file, &blob_cid_str, &did_inner, max_attempts)
-                        .await;
+                let metrics = state.read().await.metrics.clone();
+                let result = upload_blob_with_retries(
+                    &agent,
+                    file,
+                    &blob_cid_str,
+                    &did_inner,
+                    max_attempts,
+                    metrics,
+                )
+                .await;
                 (path, blob_cid_str, result)
             }
         })
@@ -773,6 +823,7 @@ async fn upload_blob_with_retries(
     blob_cid: &str,
     did: &str,
     max_attempts: u32,
+    metrics: Arc<MigrationMetrics>,
 ) -> Result<(), MigrationError> {
     let mut attempt: u32 = 1;
     let mut rate_limit_waits: u32 = 0;
@@ -780,6 +831,7 @@ async fn upload_blob_with_retries(
         match upload_blob(agent, file.clone(), blob_cid).await {
             Ok(()) => return Ok(()),
             Err(MigrationError::RateLimitReached) => {
+                metrics.record_rate_limit("upload_blobs");
                 if rate_limit_waits >= max_attempts.max(1) {
                     tracing::error!(
                         "[{}][{}] Rate limit retries exhausted for blob {}",

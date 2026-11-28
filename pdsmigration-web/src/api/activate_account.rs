@@ -53,7 +53,8 @@ pub async fn activate_account_api(
     let pds_host = req.pds_host.clone();
     config
         .migration_tracker
-        .track(
+        .track_operation(
+            "activate_account",
             &did,
             true,
             pdsmigration_common::activate_account(pds_host.as_str(), did.as_str(), token.as_str()),
