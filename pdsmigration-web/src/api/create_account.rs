@@ -106,7 +106,7 @@ pub async fn create_account_api(
 
     config
         .migration_tracker
-        .track(&did, false, async {
+        .track_operation("create_account", &did, false, async {
             create_account(
                 req.pds_host.as_str(),
                 &CreateAccountRequest {

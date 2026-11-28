@@ -69,7 +69,8 @@ pub async fn migrate_preferences_api(
     tracing::info!("[{}] Migrate preferences request received", did);
     config
         .migration_tracker
-        .track(
+        .track_operation(
+            "migrate_preferences",
             &did,
             false,
             pdsmigration_common::migrate_preferences_api(req.into()),
